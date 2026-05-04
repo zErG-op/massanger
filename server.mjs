@@ -23,7 +23,28 @@ async function start() {
     await client.connect();
 
     io.on("connection", (socket) => {
+
         console.log("CONNECTED:", socket.id);
+        socket.join("general");
+
+        socket.on("new_massage", async (new_message) => {
+
+            const massage = {
+                id: "user.id",                              //  !!!
+                massage: new_message,
+            };
+
+            await collection.insertOne(massage);
+
+            io.to("general").emit("new_message", new_message);
+        })
+
+        socket.on("delete_message", async (messageId) => {
+
+            await collection.deleteOne({ id: messageId });
+
+            io.to("general").emit("message_deleted", messageId);
+        });
     });
 
     server.listen(3000, () => {
