@@ -1,9 +1,18 @@
 <script src="/socket.io/socket.io.js"></script>
 
 <script>
-    const socket = io("http://localhost:3000");
+    import { io } from "socket.io-client";
 
-    socket.on("connect", () => {
+
+
+    const socket = io("http://localhost:3000", {
+        info: {
+            email: "ex@gmail.com",
+            password: 1234
+        }
+    });
+
+    socket.on("connection", () => {
         console.log("CONNECTED:", socket.id);
     });
 
