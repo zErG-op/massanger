@@ -29,15 +29,6 @@ async function start() {
 
     io.on("connection", (socket) => {
 
-        const payload = socket.handshake.info;
-        const secretKey = uuidv4();
-        const options = { expiresIn: '1h' };
-        const token = jwt.sign(payload, secretKey, options);
-
-        //console.log('Generated JWT:', token);
-        console.log(socket.handshake.info)
-        console.log(token)
-        console.log("CONNECTED:", socket.id);
         socket.join("general");
 
         socket.on("new_massage", async (new_message) => {
@@ -82,10 +73,10 @@ app.post("/api/users", async (req, res) => {
 
         const user = {
             id: uuidv4(),
-            name: req.query.name.trim(),
-            surename: req.query.surename.trim(),
-            email: req.query.email.trim(),
-            password: req.query.password.trim()
+            name: req.body.name,
+            surename: req.body.surename,
+            email: req.body.email,
+            password: req.body.password
         };
 
         if (!user.name || !user.surename) {
@@ -105,7 +96,7 @@ app.post("/api/users", async (req, res) => {
 app.delete("/api/users", async (req, res) => {
     try {
         const { id } = req.query
-        const result = await collection.deleteOne({ id: req.query.id });
+        const result = await collection.deleteOne({ id: id });
 
         res.json(result)
 
@@ -115,4 +106,23 @@ app.delete("/api/users", async (req, res) => {
     }
 });
 
+app.post("/api/login", async (req, res) => {
+    try {
+        const user = await collection.findOne({ email: req.body.email })
+        const secretKey = uuidv4();
+        const options = { expiresIn: '1h' };
+
+        if (!user) return res.status(404).json("no such user");
+
+        const token = jwt.sign(user.id, secretKey, options);
+
+        console.log(token)
+
+        res.json(token)
+    } catch (err) {
+        console.log(err);
+
+        res.status(500).json(err.message);
+    }
+});
 // http://localhost:3000/ node server.mjs
