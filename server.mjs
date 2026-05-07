@@ -22,14 +22,18 @@ app.use(express.json());
 
 const client = new MongoClient("mongodb://localhost:27017");
 const db = client.db("myAppDB");
-const collection = db.collection("users");
+const collection_users = db.collection("users");
+const collection_rooms = db.collection("rooms");
 
 async function start() {
     await client.connect();
 
-    io.on("connection", (socket) => {
+    io.on("connection", async (socket) => {
 
-        socket.join("general");
+        const user = await collection_users.findOne({ email: "user.id" })                              //  !!!
+        const rooms = await collection_rooms.find({ user: "user.id" })                              //  !!!
+        console.log(rooms)
+        socket.join();
 
         socket.on("new_massage", async (new_message) => {
 
@@ -38,14 +42,14 @@ async function start() {
                 massage: new_message,
             };
 
-            await collection.insertOne(massage);
+            await collection_users.insertOne(massage);
 
             io.to("general").emit("new_message", new_message);
         })
 
         socket.on("delete_message", async (messageId) => {
 
-            await collection.deleteOne({ id: messageId });
+            await collection_users.deleteOne({ id: messageId });
 
             io.to("general").emit("message_deleted", messageId);
         });
@@ -83,7 +87,7 @@ app.post("/api/users", async (req, res) => {
             return res.status(400).json("Missing name or surname");
         }
 
-        const result = await collection.insertOne(user);
+        const result = await collection_users.insertOne(user);
 
         return res.status(201).json(result);
 
@@ -96,7 +100,7 @@ app.post("/api/users", async (req, res) => {
 app.delete("/api/users", async (req, res) => {
     try {
         const { id } = req.query
-        const result = await collection.deleteOne({ id: id });
+        const result = await collection_users.deleteOne({ id: id });
 
         res.json(result)
 
@@ -108,7 +112,7 @@ app.delete("/api/users", async (req, res) => {
 
 app.post("/api/login", async (req, res) => {
     try {
-        const user = await collection.findOne({ email: req.body.email })
+        const user = await collection_users.findOne({ email: req.body.email })
         const secretKey = uuidv4();
         const options = { expiresIn: '1h' };
 
@@ -116,12 +120,47 @@ app.post("/api/login", async (req, res) => {
 
         const token = jwt.sign(user.id, secretKey, options);
 
-        console.log(token)
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: "strict",
+            maxAge: options
+        })
 
-        res.json(token)
     } catch (err) {
         console.log(err);
+        res.status(500).json(err.message);
+    }
+});
 
+app.post("/api/logout", async (req, res) => {
+    try {
+
+        res.clearCookie("token", {
+            httpOnly: true,
+            secure: true,
+            sameSite: "strict",
+            maxAge: options
+        })
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json(err.message);
+    }
+});
+
+app.post("/api/rooms", async (req, res) => {
+    try {
+
+        const data = {
+            name: req.body.name,
+            user: req.body.user
+        }
+        const result = await collection_rooms.insertOne(data);
+
+        return res.status(201).json(result);
+    } catch (err) {
+        console.log(err);
         res.status(500).json(err.message);
     }
 });
