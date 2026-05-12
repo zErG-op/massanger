@@ -14,13 +14,11 @@ const server = http.createServer(app);
 const io = new Server(server);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-//const crypto = require('crypto')
-//const jwt = require("jsonwebtoken")
 
 app.use(express.static(__dirname + "/public"));
 app.use(express.json());
 
-const client = new MongoClient("mongodb://localhost:27017");
+const client = new MongoClient("mongodb://127.0.0.1:27017");
 const db = client.db("myAppDB");
 const collection_users = db.collection("users");
 const collection_rooms = db.collection("rooms");
@@ -31,9 +29,11 @@ async function start() {
     io.on("connection", async (socket) => {
 
         const user = await collection_users.findOne({ email: "user.id" })                              //  !!!
-        const rooms = await collection_rooms.find({ user: "user.id" })                              //  !!!
-        console.log(rooms)
-        socket.join();
+        const rooms = await collection_rooms.find({ user: "user.id" }).project({ name: 1, _id: 0 }).toArray();                  //  !!!
+        const names = rooms.map(r => r.name);
+        console.log(names);
+
+        socket.join(names);
 
         socket.on("new_massage", async (new_message) => {
 
@@ -156,12 +156,30 @@ app.post("/api/rooms", async (req, res) => {
             name: req.body.name,
             user: req.body.user
         }
-        const result = await collection_rooms.insertOne(data);
+        if (collection_rooms.find({ tags: 'js' })) {
+            return res.status(400).json("already exist!!!");
+        } else {
+            const result = await collection_rooms.insertOne(data);
+            return res.status(201).json(result);
+        }
 
+    } catch (err) {
+        console.log(err);
+        res.status(500).json(err);
+    }
+});
+
+app.delete("/api/rooms", async (req, res) => {
+    try {
+
+
+        const user = req.query.user;
+        const result = await collection_rooms.deleteOne({ user: user });
+        console.log(result)
         return res.status(201).json(result);
     } catch (err) {
         console.log(err);
-        res.status(500).json(err.message);
+        res.status(500).json(err);
     }
 });
 // http://localhost:3000/ node server.mjs
