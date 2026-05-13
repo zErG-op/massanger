@@ -26,19 +26,37 @@ const collection_rooms = db.collection("rooms");
 async function start() {
     await client.connect();
 
+    //  io.use((socket, next) => {
+    //      const token = socket.handshake.auth.token                                  //!!!
+    //      if (!token) {
+    //         return next(new Error("Token missing"))
+    //      }
+    //      jwt.verify(token, "uuidv4()", (err, decoded) => {
+    //          if (err) { return next(new Error("Token is invalid")) }
+    //
+    //          socket.user = decoded
+    //         next()
+    //        })
+    // })
+
     io.on("connection", async (socket) => {
 
-        const user = await collection_users.findOne({ email: "user.id" })                              //  !!!
-        const rooms = await collection_rooms.find({ user: "user.id" }).project({ name: 1, _id: 0 }).toArray();                  //  !!!
+        const user = await collection_users.findOne({ email: socket.user })
+        const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
         const names = rooms.map(r => r.name);
-        console.log(names);
 
-        socket.join(names);
+        socket.join("general")
 
+        io.on("join_room", async (room) => {                                     //!!!
+            const previousRoom = Array.from(socket.rooms).at(1);
+            socket.leave(previousRoom);
+            socket.join(room)
+        })
         socket.on("new_massage", async (new_message) => {
 
             const massage = {
-                id: "user.id",                              //  !!!
+                id: socket.user,
+                room: Array.from(socket.rooms).at(1),
                 massage: new_message,
             };
 
@@ -112,8 +130,8 @@ app.delete("/api/users", async (req, res) => {
 
 app.post("/api/login", async (req, res) => {
     try {
-        const user = await collection_users.findOne({ email: req.body.email })
-        const secretKey = uuidv4();
+        const user = await collection_users.findOne({ email: req.body.email })    //!!!
+        const secretKey = "uuidv4()";
         const options = { expiresIn: '1h' };
 
         if (!user) return res.status(404).json("no such user");
@@ -156,7 +174,11 @@ app.post("/api/rooms", async (req, res) => {
             name: req.body.name,
             user: req.body.user
         }
-        if (collection_rooms.find({ tags: 'js' })) {
+        const existingRoom = await collection_rooms.findOne({
+            name: req.body.name,
+            user: req.body.user
+        });
+        if (existingRoom) {
             return res.status(400).json("already exist!!!");
         } else {
             const result = await collection_rooms.insertOne(data);
@@ -171,7 +193,6 @@ app.post("/api/rooms", async (req, res) => {
 
 app.delete("/api/rooms", async (req, res) => {
     try {
-
 
         const user = req.query.user;
         const result = await collection_rooms.deleteOne({ user: user });
