@@ -26,18 +26,18 @@ const collection_rooms = db.collection("rooms");
 async function start() {
     await client.connect();
 
-    //  io.use((socket, next) => {
-    //      const token = socket.handshake.auth.token                                  //!!!
-    //      if (!token) {
-    //         return next(new Error("Token missing"))
-    //      }
-    //      jwt.verify(token, "uuidv4()", (err, decoded) => {
-    //          if (err) { return next(new Error("Token is invalid")) }
-    //
-    //          socket.user = decoded
-    //         next()
-    //        })
-    // })
+    io.use((socket, next) => {
+        const token = socket.handshake.auth.token                                  //!!!
+        if (!token) {
+            return next(new Error("Token missing"))
+        }
+        jwt.verify(token, "uuidv4()", (err, decoded) => {
+            if (err) { return next(new Error("Token is invalid")) }
+
+            socket.user = decoded
+            next()
+        })
+    })
 
     io.on("connection", async (socket) => {
 

@@ -1,10 +1,37 @@
 {
+  "name": "massanger",
+  "version": "1.0.0",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.2.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "socket.io": "^4.8.3",
     "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "vite": "^8.0.13",
+    "vite-plugin-electron": "^0.29.1"
+  },
+  "build": {
+    "nsis": {
+      "oneClick": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "okoshko"
+    }
   }
 }
