@@ -2,12 +2,29 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 
 function App() {
+
+    async function entering() {
+
+        let rooms = await fetch("/api/rooms", {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            query: JSON.stringify({ name: name })
+        })
+
+        let data = await rooms.json()
+        console.log("server response:", data)
+    }
+    entering()
+    console.log('Компонент отрисовался');
     return (
-        <div style={{ padding: '20px', fontFamily: 'sans-serif', backgroundColor: '#f0f2f5', height: '100vh' }}>
-            <h1>Привет из React внутри Electron! 🚀</h1>
-            <p>Если вы видите этот текст, всё настроено правильно.</p>
-        </div>
-    );
+        <>
+            <ul>
+                {data.map((rooms) => <li key={rooms}>{rooms}</li>)}
+            </ul>
+        </>
+    )
 }
 
 const rootElement = document.getElementById('root');
@@ -17,3 +34,5 @@ root.render(
         <App />
     </React.StrictMode>
 );
+
+//npm run dev

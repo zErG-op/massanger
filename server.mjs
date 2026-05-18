@@ -42,7 +42,7 @@ async function start() {
     io.on("connection", async (socket) => {
 
         const user = await collection_users.findOne({ email: socket.user })
-        const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
+        export const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
         const names = rooms.map(r => r.name);
 
         socket.join("general")

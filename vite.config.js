@@ -6,7 +6,6 @@ export default defineConfig({
     plugins: [
         react(),
         electron({
-            // Указываем Vite, где лежит главный файл Electron
             entry: 'main.js',
         }),
     ],

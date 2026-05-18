@@ -11,7 +11,6 @@ function createWindow() {
         },
     });
 
-    // Плагин сам передает URL в режиме разработки или путь к файлу в продакшене
     if (process.env.VITE_DEV_SERVER_URL) {
         win.loadURL(process.env.VITE_DEV_SERVER_URL);
         win.webContents.openDevTools();
