@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import { create } from "domain";
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
-
+import cors from 'cors';
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -17,7 +17,9 @@ const __dirname = dirname(__filename);
 
 app.use(express.static(__dirname + "/public"));
 app.use(express.json());
-
+app.use(cors({
+    origin: 'http://localhost:5173'
+}));
 const client = new MongoClient("mongodb://127.0.0.1:27017");
 const db = client.db("myAppDB");
 const collection_users = db.collection("users");
@@ -42,7 +44,7 @@ async function start() {
     io.on("connection", async (socket) => {
 
         const user = await collection_users.findOne({ email: socket.user })
-        export const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
+        const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
         const names = rooms.map(r => r.name);
 
         socket.join("general")
@@ -52,6 +54,7 @@ async function start() {
             socket.leave(previousRoom);
             socket.join(room)
         })
+
         socket.on("new_massage", async (new_message) => {
 
             const massage = {
@@ -166,6 +169,18 @@ app.post("/api/logout", async (req, res) => {
         res.status(500).json(err.message);
     }
 });
+
+app.get("/api/rooms", async (req, res) => {
+    try {
+        const { user } = req.query;
+        const info = await collection_rooms.find({ user: user }).toArray();
+        const roomNames = info.map(room => room.name);
+        res.status(200).json(roomNames);
+    } catch (err) {
+        console.log(err);
+        res.status(500).json(err.message);
+    }
+})
 
 app.post("/api/rooms", async (req, res) => {
     try {

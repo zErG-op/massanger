@@ -1,27 +1,42 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { useState, useEffect } from 'react';
+import { io } from "socket.io-client";
 
 function App() {
+    const socket = io("https://your-server-url.com");
+    const [arr, setArr] = useState([]);
 
-    async function entering() {
-
-        let rooms = await fetch("/api/rooms", {
-            method: "GET",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            query: JSON.stringify({ name: name })
-        })
-
-        let data = await rooms.json()
-        console.log("server response:", data)
+    async function fetching() {
+        const fff = await fetch("http://localhost:3000/api/rooms?user=user.id")
+        const jsonchik = await fff.json()
+        return jsonchik
     }
-    entering()
-    console.log('Компонент отрисовался');
+
+    useEffect(() => {
+        async function hui() {
+            const data = await fetching()
+            setArr(data)
+        }
+        hui()
+    }, [])
+
+
+    function joining(room) {
+        socket.emit("join-room", room);
+        socket.rooms.forEach((room) => {
+            if (room !== socket.id) {
+                console.log(`Пользователь находится в комнате: ${room}`);
+            }
+        });
+    }
+
     return (
         <>
             <ul>
-                {data.map((rooms) => <li key={rooms}>{rooms}</li>)}
+                {arr.map((room, index) => (
+                    <li onClick={() => joining(room)} key={index}>{JSON.stringify(room)}</li>
+                ))}
             </ul>
         </>
     )
