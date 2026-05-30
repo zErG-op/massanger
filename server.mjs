@@ -9,79 +9,90 @@ import { create } from "domain";
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import cors from 'cors';
+
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+        //credentials: true
+    }
+});
+
+app.use(cors({
+    origin: "http://localhost:5173",
+    credentials: true
+}));
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 app.use(express.static(__dirname + "/public"));
 app.use(express.json());
-app.use(cors({
-    origin: 'http://localhost:5173'
-}));
+
 const client = new MongoClient("mongodb://127.0.0.1:27017");
 const db = client.db("myAppDB");
 const collection_users = db.collection("users");
 const collection_rooms = db.collection("rooms");
 
-async function start() {
-    await client.connect();
+//async function start() {
+//await client.connect();
 
-    io.use((socket, next) => {
-        const token = socket.handshake.auth.token                                  //!!!
-        if (!token) {
-            return next(new Error("Token missing"))
-        }
-        jwt.verify(token, "uuidv4()", (err, decoded) => {
-            if (err) { return next(new Error("Token is invalid")) }
+//io.use((socket, next) => {
+//const token = socket.handshake.auth.token                                  //!!!
+//if (!token) {
+//    return next(new Error("Token missing"))
+//  }
+//    jwt.verify(token, "uuidv4()", (err, decoded) => {
+//          if (err) { return next(new Error("Token is invalid")) }
+//
+//   socket.user = decoded
+//     next()
+//   })
+// })
 
-            socket.user = decoded
-            next()
-        })
+io.on("connection", async (socket) => {
+
+    const user = await collection_users.findOne({ email: socket.user })
+    const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
+    const names = rooms.map(r => r.name);
+    console.log("`Пользователь`");
+    socket.join("general")
+
+    io.on("join_room", async (room) => {                                     //!!!
+        const previousRoom = Array.from(socket.rooms).at(1);
+        socket.leave(previousRoom);
+        socket.join(room)
+        console.log(`Пользователь`);
     })
 
-    io.on("connection", async (socket) => {
+    socket.on("new_massage", async (new_message) => {
 
-        const user = await collection_users.findOne({ email: socket.user })
-        const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
-        const names = rooms.map(r => r.name);
+        const massage = {
+            id: socket.user,
+            room: Array.from(socket.rooms).at(1),
+            massage: new_message,
+        };
 
-        socket.join("general")
+        await collection_users.insertOne(massage);
 
-        io.on("join_room", async (room) => {                                     //!!!
-            const previousRoom = Array.from(socket.rooms).at(1);
-            socket.leave(previousRoom);
-            socket.join(room)
-        })
+        io.to("general").emit("new_message", new_message);
+    })
 
-        socket.on("new_massage", async (new_message) => {
+    socket.on("delete_message", async (messageId) => {
 
-            const massage = {
-                id: socket.user,
-                room: Array.from(socket.rooms).at(1),
-                massage: new_message,
-            };
+        await collection_users.deleteOne({ id: messageId });
 
-            await collection_users.insertOne(massage);
-
-            io.to("general").emit("new_message", new_message);
-        })
-
-        socket.on("delete_message", async (messageId) => {
-
-            await collection_users.deleteOne({ id: messageId });
-
-            io.to("general").emit("message_deleted", messageId);
-        });
+        io.to("general").emit("message_deleted", messageId);
     });
+});
 
-    server.listen(3000, () => {
-        console.log("Server running on http://localhost:3000/");
-    });
-}
+server.listen(3000, () => {
+    console.log("Server running on http://localhost:3000/");
+});
 
-start();
+//start();
 
 app.get("/api/users", async (req, res) => {
     try {
@@ -139,7 +150,7 @@ app.post("/api/login", async (req, res) => {
 
         if (!user) return res.status(404).json("no such user");
 
-        const token = jwt.sign(user.id, secretKey, options);
+        // const token = jwt.sign(user.id, secretKey, options);
 
         res.cookie("token", token, {
             httpOnly: true,
