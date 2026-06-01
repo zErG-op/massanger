@@ -35,6 +35,7 @@ const client = new MongoClient("mongodb://127.0.0.1:27017");
 const db = client.db("myAppDB");
 const collection_users = db.collection("users");
 const collection_rooms = db.collection("rooms");
+const collection_massages = db.collection("massages");
 
 //async function start() {
 //await client.connect();
@@ -75,16 +76,16 @@ io.on("connection", async (socket) => {
             massage: new_message,
         };
 
-        await collection_users.insertOne(massage);
+        await collection_massages.insertOne(massage);
 
-        io.to("general").emit("new_message", new_message);
+        io.to("general").emit("new_message", new_message);      //!!!!!!!!!!!!!!!
     })
 
     socket.on("delete_message", async (messageId) => {
 
-        await collection_users.deleteOne({ id: messageId });
+        await collection_massages.deleteOne({ id: messageId });
 
-        io.to("general").emit("message_deleted", messageId);
+        io.to("general").emit("message_deleted", messageId);   //!!!!!!!!!!!!!!!
     });
 });
 

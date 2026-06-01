@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { useState, useEffect } from 'react';
 import { useRef } from 'react';
 import { io } from "socket.io-client";
+import { v1 } from "uuid";
 
 const socket = io("http://localhost:3000", {
     transports: ["websocket"]
@@ -45,14 +46,20 @@ function App() {
 
     const inputRef = useRef();
 
-
-    const [message, createMessage] = useState('');
+    const [message, createMessage] = useState([]);
 
     function sendMessage() {
-        createMessage(inputRef.current.value);
+        createMessage([...message, inputRef.current.value]);
+        console.log(message)
+        socket.emit("new_massage", {
+            text: inputRef.current.value,
+            user: "user"//!!!!!!!!!!!!! user needed
+        });
         inputRef.current.value = ""
-        return <span>{message}</span>;
     }
+
+    const [raeverfv, vvvaav] = useState(null)
+
     return (
         <>
             <ul>
@@ -63,6 +70,21 @@ function App() {
             <div>
                 {joined ? (
                     <div>
+                        {message.map((number) =>
+                            <div
+                                key={v1()}
+                                onContextMenu={(e) => {
+                                    e.preventDefault;
+                                    vvvaav(number);
+                                    console.log(number)
+                                }}>
+                                {number}
+                                {raeverfv === number &&
+                                    <select onChange={(event) => vvvaav(null)}>
+                                        <option value="delete">Delete</option>
+                                    </select>
+                                }
+                            </div>)}
                         <input name="messInput" ref={inputRef} />
                         <button onClick={() => sendMessage()}>Подтвердить</button>
                     </div>
