@@ -71,9 +71,9 @@ io.on("connection", async (socket) => {
     socket.on("new_massage", async (new_message) => {
 
         const massage = {
-            id: socket.user,
-            room: Array.from(socket.rooms).at(1),
-            massage: new_message,
+            text: new_message.text,
+            key: new_message.key,
+            user: new_message.user
         };
 
         await collection_massages.insertOne(massage);
@@ -81,9 +81,15 @@ io.on("connection", async (socket) => {
         io.to("general").emit("new_message", new_message);      //!!!!!!!!!!!!!!!
     })
 
-    socket.on("delete_message", async (messageId) => {
+    socket.on("delete_message", async (delete_message) => {
 
-        await collection_massages.deleteOne({ id: messageId });
+        const massageToDel = {
+            text: delete_message.text,
+            key: delete_message.key,
+            user: delete_message.user
+        };
+
+        await collection_massages.deleteOne(massageToDel);
 
         io.to("general").emit("message_deleted", messageId);   //!!!!!!!!!!!!!!!
     });

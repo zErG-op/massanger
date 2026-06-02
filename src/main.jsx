@@ -49,16 +49,33 @@ function App() {
     const [message, createMessage] = useState([]);
 
     function sendMessage() {
-        createMessage([...message, inputRef.current.value]);
-        console.log(message)
-        socket.emit("new_massage", {
+
+        const mes = {
             text: inputRef.current.value,
+            key: v1(),
             user: "user"//!!!!!!!!!!!!! user needed
-        });
+        }
+
+        createMessage([...message, mes]);
+        socket.emit("new_massage", mes);
         inputRef.current.value = ""
     }
 
-    const [raeverfv, vvvaav] = useState(null)
+    const [selectedMessage, selectMessage] = useState(null)
+    const [option, optionChanger] = useState(null)
+
+    function optionsHendler(option) {
+        if (option === "delete") {
+            const updatedMessage = message.filter((mes) => mes.key !== selectedMessage.key)
+            createMessage(updatedMessage)
+            const mesToDel = {
+                text: selectedMessage.text,
+                key: selectedMessage.key,
+                user: "user"//!!!!!!!!!!!!! user needed
+            }
+            socket.emit("delete_message", mesToDel);
+        }
+    }
 
     return (
         <>
@@ -72,16 +89,16 @@ function App() {
                     <div>
                         {message.map((number) =>
                             <div
-                                key={v1()}
+                                key={number.key}
                                 onContextMenu={(e) => {
                                     e.preventDefault;
-                                    vvvaav(number);
-                                    console.log(number)
+                                    selectMessage(number);
                                 }}>
-                                {number}
-                                {raeverfv === number &&
-                                    <select onChange={(event) => vvvaav(null)}>
+                                {number.text}
+                                {selectedMessage === number &&
+                                    <select onChange={(event) => optionsHendler(event.target.value)}>
                                         <option value="delete">Delete</option>
+                                        <option value="change">Change</option>
                                     </select>
                                 }
                             </div>)}
