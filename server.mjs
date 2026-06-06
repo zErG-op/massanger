@@ -54,18 +54,19 @@ const collection_massages = db.collection("massages");
 // })
 
 io.on("connection", async (socket) => {
-
+    console.log("massages")
     const user = await collection_users.findOne({ email: socket.user })
     const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
     const names = rooms.map(r => r.name);
-    console.log("`Пользователь`");
     socket.join("general")
 
     io.on("join_room", async (room) => {                                     //!!!
         const previousRoom = Array.from(socket.rooms).at(1);
         socket.leave(previousRoom);
         socket.join(room)
-        console.log(`Пользователь`);
+
+        console.log(`Socket ${socket.id} joined room: ${room}`);
+
     })
 
     socket.on("new_massage", async (new_message) => {
@@ -73,7 +74,8 @@ io.on("connection", async (socket) => {
         const massage = {
             text: new_message.text,
             key: new_message.key,
-            user: new_message.user
+            user: new_message.user,
+            room: new_message.room
         };
 
         await collection_massages.insertOne(massage);
@@ -86,20 +88,19 @@ io.on("connection", async (socket) => {
         const massageToDel = {
             text: delete_message.text,
             key: delete_message.key,
-            user: delete_message.user
+            user: delete_message.user,
+            room: delete_message.room
         };
 
         await collection_massages.deleteOne(massageToDel);
 
-        io.to("general").emit("message_deleted", messageId);   //!!!!!!!!!!!!!!!
+        // io.to("general").emit("message_deleted", messageId);   //!!!!!!!!!!!!!!!
     });
 });
 
 server.listen(3000, () => {
     console.log("Server running on http://localhost:3000/");
 });
-
-//start();
 
 app.get("/api/users", async (req, res) => {
     try {

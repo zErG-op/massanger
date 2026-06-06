@@ -9,16 +9,25 @@ const socket = io("http://localhost:3000", {
     transports: ["websocket"]
 });
 
-socket.on('connect', () => {
-    console.log(`Connected! My ID: ${socket.id}`);
-});
-
-socket.on('connect_error', (error) => {
-    console.error('Error:', error.message);
-    console.log('Details', error);
-});
-
 function App() {
+
+    useEffect(() => {
+        socket.on('connect', () => {
+            console.log(`Connected! My ID: ${socket.id}`);
+        });
+
+        return () => socket.off('connect');
+    }, []);
+
+    useEffect(() => {
+        socket.on('connect_error', (error) => {
+            console.error('Error:', error.message);
+            console.log('Details', error);
+        });
+
+        return () => socket.off('connect_error');
+    }, []);
+
     const [room, setRoom] = useState(null);
     const [joined, accept] = useState(false);
 
@@ -26,16 +35,17 @@ function App() {
         socket.emit("join_room", room);
         setRoom(room)
         accept(true)
+        console.log(room)
     }
 
     const [arr, setArr] = useState([]);
 
     async function fetching() {
-        const fff = await fetch("http://localhost:3000/api/rooms?user=user.id")
+        const fff = await fetch("http://localhost:3000/api/rooms?user=user.id") //!!!!!!!!!!!!! user needed
         const jsonchik = await fff.json()
         return jsonchik
     }
-    fetching()
+    //fetching()
     useEffect(() => {
         async function hui() {
             const data = await fetching()
@@ -53,7 +63,8 @@ function App() {
         const mes = {
             text: inputRef.current.value,
             key: v1(),
-            user: "user"//!!!!!!!!!!!!! user needed
+            user: "user",//!!!!!!!!!!!!! user needed
+            room: room
         }
 
         createMessage([...message, mes]);
@@ -71,7 +82,8 @@ function App() {
             const mesToDel = {
                 text: selectedMessage.text,
                 key: selectedMessage.key,
-                user: "user"//!!!!!!!!!!!!! user needed
+                user: "user",//!!!!!!!!!!!!! user needed
+                room: room
             }
             socket.emit("delete_message", mesToDel);
         }
@@ -94,7 +106,7 @@ function App() {
                                     e.preventDefault;
                                     selectMessage(number);
                                 }}>
-                                {number.text}
+                                {number.user}:   {number.text}
                                 {selectedMessage === number &&
                                     <select onChange={(event) => optionsHendler(event.target.value)}>
                                         <option value="delete">Delete</option>
