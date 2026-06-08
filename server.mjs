@@ -54,19 +54,19 @@ const collection_massages = db.collection("massages");
 // })
 
 io.on("connection", async (socket) => {
-    console.log("massages")
+    //console.log("massages")
     const user = await collection_users.findOne({ email: socket.user })
     const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
     const names = rooms.map(r => r.name);
     socket.join("general")
 
-    io.on("join_room", async (room) => {                                     //!!!
+    socket.on("join_room", async (room) => {
         const previousRoom = Array.from(socket.rooms).at(1);
         socket.leave(previousRoom);
         socket.join(room)
 
         console.log(`Socket ${socket.id} joined room: ${room}`);
-
+        console.log(Array.from(socket.rooms))
     })
 
     socket.on("new_massage", async (new_message) => {
@@ -192,9 +192,20 @@ app.post("/api/logout", async (req, res) => {
 app.get("/api/rooms", async (req, res) => {
     try {
         const { user } = req.query;
-        const info = await collection_rooms.find({ user: user }).toArray();
-        const roomNames = info.map(room => room.name);
-        res.status(200).json(roomNames);
+        const { name } = req.query;
+        if (user) {
+            const userS = await collection_rooms.find({ user: user }).toArray();
+            const roomNames = userS.map(room => room.name);
+            res.status(200).json(roomNames);
+            console.log("user")
+        }
+
+        if (name) {
+            const roomS = await collection_rooms.find({ name: name }).toArray();
+            const userNames = roomS.map(room => room.user);
+            res.status(200).json(roomS);
+            console.log("name")
+        }
     } catch (err) {
         console.log(err);
         res.status(500).json(err.message);

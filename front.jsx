@@ -1,11 +1,20 @@
-import { io } from "socket.io-client";
+{
+    viewed ? (
+        <span style={{ marginLeft: 50 }}>
+            {users.map((number) => (
+                <span
+                    key={number._id}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        selectMessage(number);
+                    }}
+                >
+                    {number.user}
 
-const socket = io("http://localhost:5173");
-
-socket.on("connect", () => {
-    console.log("CONNECTED:", socket.id);
-});
-
-socket.on("connect_error", (err) => {
-    console.log("ERROR:", err.message);
-});
+                </span>
+            ))}
+        </span>
+    ) : (
+        <span>васап</span>
+    )
+}

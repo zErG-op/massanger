@@ -45,7 +45,7 @@ function App() {
         const jsonchik = await fff.json()
         return jsonchik
     }
-    //fetching()
+
     useEffect(() => {
         async function hui() {
             const data = await fetching()
@@ -89,37 +89,90 @@ function App() {
         }
     }
 
+    const [users, addUser] = useState(null);
+    const [viewed, view] = useState(false);
+
+    async function viewMembers() {
+        addUser(null)
+        const url = `http://localhost:3000/api/rooms?name=${room}`;
+        const fff = await fetch(url)
+        const usersList = await fff.json()
+        addUser(usersList)
+        view(true)
+        console.log(usersList)
+    }
+
+    const inputStyle = {}
+    const ulStyle = { height: "100%", padding: 0 }
+    const liStyle = { backgroundColor: '#fcfcfc', fontSize: '16px', listStyleType: 'none', padding: 0, margin: 0, height: '5em', width: '15em' };
+    const messageStyle = { backgroundColor: '#f5600a', listStyleType: 'none', padding: '10px', width: 'max-content', display: 'inline-block', borderRadius: '10px' };
+
     return (
         <>
-            <ul>
-                {arr.map((room, index) => (
-                    <li onClick={() => joiningRoom(room)} key={index}>{JSON.stringify(room)}</li>
-                ))}
-            </ul>
-            <div>
-                {joined ? (
-                    <div>
-                        {message.map((number) =>
-                            <div
-                                key={number.key}
+            <div style={{ display: 'flex', gap: '20px' }}>
+                <ul style={{ marginLeft: '10px', listStyleType: 'none', margin: 0, padding: 0 }}>
+                    {arr.map((item, index) => (
+                        <li
+                            onClick={() => joiningRoom(item)}
+                            key={index}
+                            style={{ ...liStyle }}
+                        >
+                            {JSON.stringify(item)}
+                        </li>
+                    ))}
+                </ul>
+
+                <span>
+                    {joined ? (
+                        <span style={{ marginLeft: 50 }}>
+                            {message.map((number) => (
+                                <span
+                                    style={{ ...messageStyle, display: 'block', marginBottom: '10px' }}
+                                    key={number.key}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        selectMessage(number);
+                                    }}
+                                >
+                                    {number.user}: {number.text}
+
+                                    {selectedMessage === number && (
+                                        <select
+                                            style={{ marginLeft: '10px' }}
+                                            onChange={(event) => optionsHendler(event.target.value)}
+                                        >
+                                            <option value="delete">Delete</option>
+                                            <option value="change">Change</option>
+                                        </select>
+                                    )}
+                                </span>
+                            ))}
+                            <input name="messInput" ref={inputRef} style={{ ...inputStyle }} />
+                            <button onClick={() => sendMessage()}>Подтвердить</button>
+                            <button onClick={() => viewMembers()}>Пользователи</button>
+                        </span>
+                    ) : (
+                        <span>васап</span>
+                    )}
+                </span>                     {viewed ? (
+                    <span style={{ marginLeft: 50 }}>
+                        {users.map((number) => (
+                            <span
+                                key={number._id}
                                 onContextMenu={(e) => {
-                                    e.preventDefault;
+                                    e.preventDefault();
                                     selectMessage(number);
-                                }}>
-                                {number.user}:   {number.text}
-                                {selectedMessage === number &&
-                                    <select onChange={(event) => optionsHendler(event.target.value)}>
-                                        <option value="delete">Delete</option>
-                                        <option value="change">Change</option>
-                                    </select>
-                                }
-                            </div>)}
-                        <input name="messInput" ref={inputRef} />
-                        <button onClick={() => sendMessage()}>Подтвердить</button>
-                    </div>
+                                }}
+                            >
+                                {number.user}
+
+                            </span>
+                        ))}
+                    </span>
                 ) : (
-                    <h1>васап</h1>
+                    <span>васап</span>
                 )}
+
             </div>
         </>
     )
