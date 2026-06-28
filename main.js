@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 
 function createWindow() {
@@ -17,6 +17,18 @@ function createWindow() {
     } else {
         win.loadFile(path.join(__dirname, 'public/index.html'));
     }
+
+    win.on('page-title-updated', (event, title) => {
+        if (title.startsWith('OPEN_FILE:')) {
+            event.preventDefault();
+            const filePath = title.replace('OPEN_FILE:', '');
+            console.log('===> Main.js получил реальный путь:', filePath);
+
+            if (filePath) {
+                shell.openPath(filePath).catch(err => console.log('Ошибка открытия:', err));
+            }
+        }
+    });
 }
 
 app.whenReady().then(createWindow);

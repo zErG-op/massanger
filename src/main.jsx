@@ -4,12 +4,25 @@ import { useState, useEffect } from 'react';
 import { useRef } from 'react';
 import { io } from "socket.io-client";
 import { v1 } from "uuid";
-
+import { shell } from 'electron';
+import ReactPlayer from 'react-player';
+import './style.css';
 const socket = io("http://localhost:3000", {
     transports: ["websocket"]
 });
 
 function App() {
+
+    const [room, setRoom] = useState(null);
+    const [joined, accept] = useState(false);
+    const [arr, setArr] = useState([]);
+    const [users, addUser] = useState(null);
+    const [viewed, view] = useState(false);
+    const [files, setFiles] = useState(null);
+    const [add, fileAdded] = useState("text");
+    const [message, createMessage] = useState([]);
+    const [selectedMessage, selectMessage] = useState(null)
+    const [option, optionChanger] = useState(null)
 
     useEffect(() => {
         socket.on('connect', () => {
@@ -28,8 +41,6 @@ function App() {
         return () => socket.off('connect_error');
     }, []);
 
-    const [room, setRoom] = useState(null);
-    const [joined, accept] = useState(false);
 
     const joiningRoom = (room) => {
         socket.emit("join_room", room);
@@ -38,7 +49,6 @@ function App() {
         console.log(room)
     }
 
-    const [arr, setArr] = useState([]);
 
     async function fetching() {
         const fff = await fetch("http://localhost:3000/api/rooms?user=user.id") //!!!!!!!!!!!!! user needed
@@ -56,24 +66,6 @@ function App() {
 
     const inputRef = useRef();
 
-    const [message, createMessage] = useState([]);
-
-    function sendMessage() {
-
-        const mes = {
-            text: inputRef.current.value,
-            key: v1(),
-            user: "user",//!!!!!!!!!!!!! user needed
-            room: room
-        }
-
-        createMessage([...message, mes]);
-        socket.emit("new_massage", mes);
-        inputRef.current.value = ""
-    }
-
-    const [selectedMessage, selectMessage] = useState(null)
-    const [option, optionChanger] = useState(null)
 
     function optionsHendler(option) {
         if (option === "delete") {
@@ -89,10 +81,9 @@ function App() {
         }
     }
 
-    const [users, addUser] = useState(null);
-    const [viewed, view] = useState(false);
 
     async function viewMembers() {
+        view(false)
         addUser(null)
         const url = `http://localhost:3000/api/rooms?name=${room}`;
         const fff = await fetch(url)
@@ -102,9 +93,103 @@ function App() {
         console.log(usersList)
     }
 
+    function fileAdder() {
+        fileAdded("file")
+    }
+
+    const sendFiles = async (e) => {
+
+        const formData = new FormData();
+        formData.append('messInput', e);
+
+        const response = await fetch('http://localhost:3000/upload', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+        console.log(data.path.slice(2).split(/[\\/]/).pop());
+        const url = data.path.slice(2).split(/[\\/]/).pop();
+        const serverUrl = `http://localhost:5173/uploads/${url}`;
+
+
+
+
+        let fullName = String(e.type).split("")
+        let type
+
+        for (let i = 0; i < fullName.length; i++) {
+            if (fullName[i] === "/") {
+                type = fullName.slice(i - fullName.length + 1).join("")
+                console.log(type)
+                console.log("гойда")
+
+            }
+        }
+
+        const file = {
+            //text: "aaa",
+            path: serverUrl,
+            key: v1(),
+            user: "user",//!!!!!!!!!!!!! user needed
+            room: room,
+            type: type
+        }
+        createMessage([...message, file]);
+        console.log("file: ", file)
+    };
+
+    const uploader = (e) => {
+        e.preventDefault();
+        const selectedFiles = e.dataTransfer.files;
+
+        if (!selectedFiles || selectedFiles.length === 0) {
+            console.log("Файл не выбран в проводнике");
+            return;
+        }
+
+        const targetFile = selectedFiles[0];
+        console.log("Файл подготовлен к отправке:", targetFile.name);
+        setFiles(targetFile);
+        sendFiles(targetFile);
+
+        e.target.value = "";
+        fileAdded("text")
+
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+    };
+
+
+    function sendMessage() {
+        if (inputRef.current.value.trim().length > 1) {
+            const mes = {
+                text: inputRef.current.value.trim(),
+                key: v1(),
+                user: "user",//!!!!!!!!!!!!! user needed
+                room: room,
+                type: "messages"
+            }
+
+            createMessage([...message, mes]);
+            socket.emit("new_massage", mes);
+            inputRef.current.value = ""
+        }
+    }
+    //onClick={() => shell.openPath(number.path);}
+    //onClick={() => fileOpen(number.path)}
+    const fileOpen = (filePath) => {
+        if (!filePath) return;
+        document.title = `OPEN_FILE:${filePath}`;
+        console.log("React: Отправили путь через заголовок:", filePath);
+    };
+
+
     const inputStyle = {}
     const ulStyle = { height: "100%", padding: 0 }
-    const liStyle = { backgroundColor: '#fcfcfc', fontSize: '16px', listStyleType: 'none', padding: 0, margin: 0, height: '5em', width: '15em' };
+    //const liStyle = {};
     const messageStyle = { backgroundColor: '#f5600a', listStyleType: 'none', padding: '10px', width: 'max-content', display: 'inline-block', borderRadius: '10px' };
 
     return (
@@ -115,7 +200,8 @@ function App() {
                         <li
                             onClick={() => joiningRoom(item)}
                             key={index}
-                            style={{ ...liStyle }}
+                            //style={{ ...liStyle }}
+                            className="hover-li"
                         >
                             {JSON.stringify(item)}
                         </li>
@@ -124,7 +210,7 @@ function App() {
 
                 <span>
                     {joined ? (
-                        <span style={{ marginLeft: 50 }}>
+                        <span style={{ marginLeft: 10, position: 'fixed', top: 0, right: 100, width: '81.4vw', height: '100vh', zIndex: 9999 }} onDrop={uploader} onDragOver={uploader}>
                             {message.map((number) => (
                                 <span
                                     style={{ ...messageStyle, display: 'block', marginBottom: '10px' }}
@@ -134,8 +220,18 @@ function App() {
                                         selectMessage(number);
                                     }}
                                 >
-                                    {number.user}: {number.text}
 
+                                    {number.text && (
+                                        <span style={{ ...messageStyle }}>{number.user}: {number.text}; </span>
+                                    )}
+
+                                    {number.type === 'jpeg' && (
+                                        <img src={number.path} width="300" height="200" alt="uploaded" />
+                                    )}
+
+                                    {number.type === 'mp4' && (
+                                        <ReactPlayer url={number.path} controls={true} width="300" height="200" />
+                                    )}
                                     {selectedMessage === number && (
                                         <select
                                             style={{ marginLeft: '10px' }}
@@ -147,15 +243,27 @@ function App() {
                                     )}
                                 </span>
                             ))}
-                            <input name="messInput" ref={inputRef} style={{ ...inputStyle }} />
-                            <button onClick={() => sendMessage()}>Подтвердить</button>
-                            <button onClick={() => viewMembers()}>Пользователи</button>
+                            <input name="messInput" ref={inputRef} style={{ ...inputStyle }} type={add} onChange={uploader} className="input" />
+                            <>
+                                <button onClick={() => sendMessage()} className="img-btn">
+                                    <img src="/img/images.png" alt="" className="img-for-btn" />
+                                </button>
+
+                                <button onClick={() => viewMembers()} className="img-btn">
+                                    <img src="/img/users.png" alt="" className="img-for-btn" />
+                                </button>
+
+                                <button onClick={() => fileAdder()} className="img-btn">
+                                    <img src="/img/file.png" alt="" className="img-for-btn" />
+                                </button>
+                            </>
+
                         </span>
                     ) : (
                         <span>васап</span>
                     )}
                 </span>                     {viewed ? (
-                    <span style={{ marginLeft: 50 }}>
+                    <span style={{ marginLeft: 'auto' }}>
                         {users.map((number) => (
                             <span
                                 key={number._id}
@@ -170,7 +278,7 @@ function App() {
                         ))}
                     </span>
                 ) : (
-                    <span>васап</span>
+                    <span></span>
                 )}
 
             </div>

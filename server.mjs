@@ -9,6 +9,8 @@ import { create } from "domain";
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import cors from 'cors';
+import multer from 'multer';
+import path from 'path';
 
 const app = express();
 const server = http.createServer(app);
@@ -247,5 +249,43 @@ app.delete("/api/rooms", async (req, res) => {
         console.log(err);
         res.status(500).json(err);
     }
+});
+
+
+
+
+
+
+
+
+
+const uploadDir = 'uploads/';
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ storage: storage });
+
+
+app.post('/upload', (req, res, next) => {
+    upload.single('messInput')(req, res, function (err) {
+        if (err instanceof multer.MulterError) {
+            return res.status(400).json({ error: `Ошибка Multer: ${err.message}` });
+        } else if (err) {
+            return res.status(500).json({ error: `Ошибка сервера: ${err.message}` });
+        }
+        return res.json({
+            success: true,
+            filename: req.file.filename,
+            path: path.join("http://localhost:5173", req.file.path)
+        });
+    });
 });
 // http://localhost:3000/ node server.mjs
