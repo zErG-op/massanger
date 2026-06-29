@@ -42,11 +42,23 @@ function App() {
     }, []);
 
 
-    const joiningRoom = (room) => {
+    const joiningRoom = async (room) => {
         socket.emit("join_room", room);
         setRoom(room)
         accept(true)
         console.log(room)
+        const params = decodeURIComponent(room);
+        const url = `http://localhost:3000/api/massages?room=${params}`;
+        const fff = await fetch(url, {
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        createMessage([])
+        console.log(message)
+        const messagesList = await fff.json()
+        const currunt_messages = messagesList.filter((mes) => mes.room === room)
+        createMessage(currunt_messages);
     }
 
 
@@ -83,16 +95,18 @@ function App() {
 
 
     async function viewMembers() {
-        view(false)
-        addUser(null)
-        const url = `http://localhost:3000/api/rooms?name=${room}`;
-        const fff = await fetch(url)
-        const usersList = await fff.json()
-        addUser(usersList)
-        view(true)
-        console.log(usersList)
+        if (viewed) {
+            view(false)
+        } else {
+            addUser(null)
+            const url = `http://localhost:3000/api/rooms?name=${room}`;
+            const fff = await fetch(url)
+            const usersList = await fff.json()
+            addUser(usersList)
+            view(true)
+            console.log(usersList)
+        }
     }
-
     function fileAdder() {
         fileAdded("file")
     }
@@ -178,18 +192,30 @@ function App() {
             inputRef.current.value = ""
         }
     }
-    //onClick={() => shell.openPath(number.path);}
-    //onClick={() => fileOpen(number.path)}
+
+    const handleKeyDown = (event) => {
+        if (event.key === 'Enter') {
+            const mes = {
+                text: inputRef.current.value.trim(),
+                key: v1(),
+                user: "user",//!!!!!!!!!!!!! user needed
+                room: room,
+                type: "messages"
+            }
+
+            createMessage([...message, mes]);
+            socket.emit("new_massage", mes);
+            inputRef.current.value = ""
+        }
+    };
+
     const fileOpen = (filePath) => {
         if (!filePath) return;
         document.title = `OPEN_FILE:${filePath}`;
         console.log("React: Отправили путь через заголовок:", filePath);
     };
 
-
-    const inputStyle = {}
     const ulStyle = { height: "100%", padding: 0 }
-    //const liStyle = {};
     const messageStyle = { backgroundColor: '#f5600a', listStyleType: 'none', padding: '10px', width: 'max-content', display: 'inline-block', borderRadius: '10px' };
 
     return (
@@ -200,7 +226,6 @@ function App() {
                         <li
                             onClick={() => joiningRoom(item)}
                             key={index}
-                            //style={{ ...liStyle }}
                             className="hover-li"
                         >
                             {JSON.stringify(item)}
@@ -243,7 +268,7 @@ function App() {
                                     )}
                                 </span>
                             ))}
-                            <input name="messInput" ref={inputRef} style={{ ...inputStyle }} type={add} onChange={uploader} className="input" />
+                            <input name="messInput" ref={inputRef} type={add} onChange={uploader} className="input" onKeyDown={(e) => e.key === 'Enter' && sendMessage()} />
                             <>
                                 <button onClick={() => sendMessage()} className="img-btn">
                                     <img src="/img/images.png" alt="" className="img-for-btn" />

@@ -288,4 +288,26 @@ app.post('/upload', (req, res, next) => {
         });
     });
 });
+
+
+
+app.get("/api/massages", async (req, res) => {
+    try {
+        const messages = await collection_massages.find({ room: req.query.room }).toArray();
+        res.status(200).json(messages);
+    } catch (err) {
+        console.log(err);
+        res.status(500).json(err.message);
+    }
+})
+
+
+
+
+
+
+
+
+
+
 // http://localhost:3000/ node server.mjs
