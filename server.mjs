@@ -38,26 +38,59 @@ const db = client.db("myAppDB");
 const collection_users = db.collection("users");
 const collection_rooms = db.collection("rooms");
 const collection_massages = db.collection("massages");
+const JWT_SECRET = "svvafkjvsakjvakjadfbjoifaoda"
 
-//async function start() {
-//await client.connect();
 
-//io.use((socket, next) => {
-//const token = socket.handshake.auth.token                                  //!!!
-//if (!token) {
-//    return next(new Error("Token missing"))
-//  }
-//    jwt.verify(token, "uuidv4()", (err, decoded) => {
-//          if (err) { return next(new Error("Token is invalid")) }
-//
-//   socket.user = decoded
-//     next()
-//   })
-// })
+
+function verifyTokenFromCookies(cookieHeader) {
+    if (!cookieHeader) return null;
+
+    const tokenRow = cookieHeader.split('; ').find(row => row.startsWith('token='));
+    if (!tokenRow) return null;
+
+    const token = tokenRow.split('=')[1];
+
+    try {
+        return jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+        return null;
+    }
+}
+
+async function start() {
+    await client.connect();
+    console.log("MongoDB connected");
+
+    io.use((socket, next) => {
+
+        const decoded = verifyTokenFromCookies(socket.handshake.headers.cookie);
+
+        if (!decoded) {
+            return next(new Error("Authentication error: Token is missing or invalid"));
+        }
+
+        socket.userEmail = decoded.email;
+        next();
+    });
+}
+start();
+
+app.get("/api/auth/me", (req, res) => {
+    const decoded = verifyTokenFromCookies(req.headers.cookie);
+
+    if (!decoded) {
+        return res.status(401).json({ authorized: false });
+    }
+
+    return res.status(200).json({
+        authorized: true,
+        email: decoded.email
+    });
+});
 
 io.on("connection", async (socket) => {
-    //console.log("massages")
-    const user = await collection_users.findOne({ email: socket.user })
+
+    //const user = await collection_users.findOne({ email: socket.user }) //!!!!!!!!!!!!!!!!
     const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
     const names = rooms.map(r => r.name);
     socket.join("general")
@@ -66,9 +99,6 @@ io.on("connection", async (socket) => {
         const previousRoom = Array.from(socket.rooms).at(1);
         socket.leave(previousRoom);
         socket.join(room)
-
-        console.log(`Socket ${socket.id} joined room: ${room}`);
-        console.log(Array.from(socket.rooms))
     })
 
     socket.on("new_massage", async (new_message) => {
@@ -82,7 +112,7 @@ io.on("connection", async (socket) => {
 
         await collection_massages.insertOne(massage);
 
-        io.to("general").emit("new_message", new_message);      //!!!!!!!!!!!!!!!
+        //  io.to("general").emit("new_message", new_message);      //!!!!!!!!!!!!!!!
     })
 
     socket.on("delete_message", async (delete_message) => {
@@ -96,7 +126,6 @@ io.on("connection", async (socket) => {
 
         await collection_massages.deleteOne(massageToDel);
 
-        // io.to("general").emit("message_deleted", messageId);   //!!!!!!!!!!!!!!!
     });
 });
 
@@ -120,13 +149,13 @@ app.post("/api/users", async (req, res) => {
         const user = {
             id: uuidv4(),
             name: req.body.name,
-            surename: req.body.surename,
+            surname: req.body.surname,
             email: req.body.email,
             password: req.body.password
         };
 
-        if (!user.name || !user.surename) {
-            return res.status(400).json("Missing name or surname");
+        if (!user.name || !user.surname || !user.surname || !user.password) {
+            return res.status(400).json("Missing something");
         }
 
         const result = await collection_users.insertOne(user);
@@ -154,21 +183,20 @@ app.delete("/api/users", async (req, res) => {
 
 app.post("/api/login", async (req, res) => {
     try {
-        const user = await collection_users.findOne({ email: req.body.email })    //!!!
-        const secretKey = "uuidv4()";
+        const user = await collection_users.findOne({ email: req.body.email, password: req.body.password })    //!!!
         const options = { expiresIn: '1h' };
-
+        const payload = { email: user.email };
         if (!user) return res.status(404).json("no such user");
 
-        // const token = jwt.sign(user.id, secretKey, options);
+        const token = jwt.sign(payload, JWT_SECRET, options);
 
         res.cookie("token", token, {
             httpOnly: true,
-            secure: true,
-            sameSite: "strict",
-            maxAge: options
+            secure: false,                       //!!!!!!!!!!!!!!!!!
+            sameSite: "lax",
+            maxAge: 60 * 60 * 1000
         })
-
+        return res.status(200).json({ message: token });
     } catch (err) {
         console.log(err);
         res.status(500).json(err.message);
@@ -182,7 +210,7 @@ app.post("/api/logout", async (req, res) => {
             httpOnly: true,
             secure: true,
             sameSite: "strict",
-            maxAge: options
+            maxAge: 0
         })
 
     } catch (err) {
@@ -199,14 +227,12 @@ app.get("/api/rooms", async (req, res) => {
             const userS = await collection_rooms.find({ user: user }).toArray();
             const roomNames = userS.map(room => room.name);
             res.status(200).json(roomNames);
-            console.log("user")
         }
 
         if (name) {
             const roomS = await collection_rooms.find({ name: name }).toArray();
             const userNames = roomS.map(room => room.user);
             res.status(200).json(roomS);
-            console.log("name")
         }
     } catch (err) {
         console.log(err);
