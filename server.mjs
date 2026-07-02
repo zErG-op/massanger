@@ -75,22 +75,23 @@ async function start() {
 }
 start();
 
-app.get("/api/auth/me", (req, res) => {
+app.get("/api/auth/me", async (req, res) => {
     const decoded = verifyTokenFromCookies(req.headers.cookie);
 
     if (!decoded) {
         return res.status(401).json({ authorized: false });
     }
+    const user = await collection_users.findOne({ email: decoded.email })
 
     return res.status(200).json({
         authorized: true,
-        email: decoded.email
+        email: decoded.email,
+        user: user.name
     });
 });
 
 io.on("connection", async (socket) => {
 
-    //const user = await collection_users.findOne({ email: socket.user }) //!!!!!!!!!!!!!!!!
     const rooms = await collection_rooms.find({ user: socket.user }).project({ name: 1, _id: 0 }).toArray();
     const names = rooms.map(r => r.name);
     socket.join("general")
@@ -127,6 +128,50 @@ io.on("connection", async (socket) => {
         await collection_massages.deleteOne(massageToDel);
 
     });
+
+
+
+
+    socket.on("new_room", async (room_name) => {
+        const room = collection_rooms.findOne({ name: room_name[0] })
+        const user = collection_users.findOne({ name: room_name[0] })
+        if (room) {
+            try {
+
+                const newUserName = String(room_name[1]).trim();
+
+                socket.join(room_name[0]);
+
+                const result = await collection_rooms.updateOne(
+                    { name: room_name[0] },
+                    { $addToSet: { user: newUserName } }
+                );
+
+            } catch (error) {
+                console.error(error);
+            }
+        } else {
+            console.log("error");
+        }
+
+        if (user) {
+
+            const nameOfRoom = room_name[0] + " - " + room_name[1]
+            const otherNameOfRoom = room_name[1] + " - " + room_name[0]
+            if (collection_rooms.findOne({ $or: [{ name: nameOfRoom }, { name: otherNameOfRoom }] })) { console.log("already exict") }
+            else {
+                const data = {
+                    name: nameOfRoom,
+                    user: room_name,
+                    type: "private"
+                }
+                socket.join(nameOfRoom);
+                await collection_rooms.insertOne(data)
+            }
+        }
+
+    });
+
 });
 
 server.listen(3000, () => {
@@ -145,19 +190,18 @@ app.get("/api/users", async (req, res) => {
 
 app.post("/api/users", async (req, res) => {
     try {
+        const emailRepeated = await collection_users.findOne({ email: req.body.email })
+        const nameRepeated = await collection_users.findOne({ name: req.body.name })
 
         const user = {
             id: uuidv4(),
             name: req.body.name,
-            surname: req.body.surname,
             email: req.body.email,
             password: req.body.password
         };
 
-        if (!user.name || !user.surname || !user.surname || !user.password) {
-            return res.status(400).json("Missing something");
-        }
-
+        if (!user.name || !user.surname || !user.surname || !user.password) { return res.status(400).json("Missing something") }
+        if (emailRepeated || nameRepeated) { return res.status(400).json("Email or name already exists") }
         const result = await collection_users.insertOne(user);
 
         return res.status(201).json(result);
@@ -227,6 +271,7 @@ app.get("/api/rooms", async (req, res) => {
             const userS = await collection_rooms.find({ user: user }).toArray();
             const roomNames = userS.map(room => room.name);
             res.status(200).json(roomNames);
+            console.log(userS)
         }
 
         if (name) {

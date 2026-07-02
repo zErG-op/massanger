@@ -46,13 +46,15 @@ function App() {
 
 
     const [isAuthenticated, setIsAuthenticated] = useState(null);
-
+    const [user, setUser] = useState(null);
     useEffect(() => {
         fetch("http://localhost:3000/api/auth/me", { credentials: "include" })
             .then(res => res.json())
             .then(data => {
                 if (data.authorized) {
                     setIsAuthenticated(true);
+                    setUser(data.user)
+                    fetching(data.user)
                 } else {
                     setIsAuthenticated(false);
                 }
@@ -102,22 +104,14 @@ function App() {
     }
 
 
-    async function fetching() {
-        const fff = await fetch("http://localhost:3000/api/rooms?user=user.id") //!!!!!!!!!!!!! user needed
+    async function fetching(currentUser) {
+        const fff = await fetch(`http://localhost:3000/api/rooms?user=${currentUser}`)
         const jsonchik = await fff.json()
-        return jsonchik
+        setArr(jsonchik)
     }
 
-    useEffect(() => {
-        async function hui() {
-            const data = await fetching()
-            setArr(data)
-        }
-        hui()
-    }, [])
-
     const inputRef = useRef();
-
+    const inputFind = useRef();
 
     function optionsHendler(option) {
         if (option === "delete") {
@@ -126,7 +120,7 @@ function App() {
             const mesToDel = {
                 text: selectedMessage.text,
                 key: selectedMessage.key,
-                user: "user",//!!!!!!!!!!!!! user needed
+                user: user,
                 room: room
             }
             socket.emit("delete_message", mesToDel);
@@ -182,10 +176,9 @@ function App() {
         }
 
         const file = {
-            //text: "aaa",
             path: serverUrl,
             key: v1(),
-            user: "user",//!!!!!!!!!!!!! user needed
+            user: user,
             room: room,
             type: type
         }
@@ -222,11 +215,10 @@ function App() {
             const mes = {
                 text: inputRef.current.value.trim(),
                 key: v1(),
-                user: "user",//!!!!!!!!!!!!! user needed
+                user: user,
                 room: room,
                 type: "messages"
             }
-
             createMessage([...message, mes]);
             socket.emit("new_massage", mes);
             inputRef.current.value = ""
@@ -238,7 +230,7 @@ function App() {
             const mes = {
                 text: inputRef.current.value.trim(),
                 key: v1(),
-                user: "user",//!!!!!!!!!!!!! user needed
+                user: user,
                 room: room,
                 type: "messages"
             }
@@ -256,7 +248,6 @@ function App() {
     };
 
     const inputName = useRef();
-    const inputSurename = useRef();
     const inputEmail = useRef();
     const inputPassword = useRef();
 
@@ -292,7 +283,6 @@ function App() {
 
         const data = await response.json();
         inputName.current.value = ""
-        inputSurename.current.value = ""
         inputEmail.current.value = ""
         inputPassword.current.value = ""
         logStatChange(true)
@@ -316,6 +306,14 @@ function App() {
         window.location.reload();
     }
 
+    async function findUser() {
+        const userToFind = inputFind.current.value.trim()
+        const fff = await fetch(`http://localhost:3000/api/users?name=${userToFind}`)
+        const data = await fff.json() //+ `-${user}`;
+        console.log(data)
+        socket.emit("new_room", [data.name, user]);
+    }
+
     const ulStyle = { height: "100%", padding: 0 }
     const messageStyle = { backgroundColor: '#f5600a', listStyleType: 'none', padding: '10px', width: 'max-content', display: 'inline-block', borderRadius: '10px' };
     if (isAuthenticated === false && logStat === false) {
@@ -324,8 +322,6 @@ function App() {
                 <h1>registration</h1>
                 <h2>Name</h2>
                 <input name="name" ref={inputName} type={"text"} className="input" onChange={handleChange} />
-                <h2>Surname</h2>
-                <input name="surname" ref={inputSurename} type={"text"} className="input" onChange={handleChange} />
                 <h2>Email</h2>
                 <input name="email" ref={inputEmail} type={"text"} className="input" onChange={handleChange} />
                 <h2>Password</h2>
@@ -352,6 +348,7 @@ function App() {
     } else if (isAuthenticated) {
         return (
             <>
+                <input ref={inputFind}></input> <button onClick={() => findUser()}>Find</button>
                 <div style={{ display: 'flex', gap: '20px' }}>
                     <ul style={{ marginLeft: '10px', listStyleType: 'none', margin: 0, padding: 0 }}>
                         {arr.map((item, index) => (
