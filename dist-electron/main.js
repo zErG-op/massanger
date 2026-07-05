@@ -1,29 +1,51 @@
 //#region main.js
-var { app, BrowserWindow, shell, ipcMain } = require("electron");
 var path = require("path");
+var { app, BrowserWindow, ipcMain, shell } = require("electron");
 function createWindow() {
 	const win = new BrowserWindow({
 		width: 900,
 		height: 700,
 		webPreferences: {
-			nodeIntegration: false,
-			contextIsolation: true
+			nodeIntegration: true,
+			contextIsolation: false
 		}
 	});
-	if (process.env.VITE_DEV_SERVER_URL) {
-		win.loadURL(process.env.VITE_DEV_SERVER_URL);
-		win.webContents.openDevTools();
-	} else win.loadFile(path.join(__dirname, "public/index.html"));
+	win.webContents.openDevTools();
+	if (process.env.VITE_DEV_SERVER_URL) win.loadURL(process.env.VITE_DEV_SERVER_URL);
+	else win.loadFile(path.join(__dirname, "dist/index.html"));
+	win.webContents.setWindowOpenHandler(({ url }) => {
+		return {
+			action: "allow",
+			overrideBrowserWindowOptions: {
+				width: 800,
+				height: 600,
+				webPreferences: {
+					preload: path.join(__dirname, "preload.js"),
+					contextIsolation: true,
+					nodeIntegration: false
+				}
+			}
+		};
+	});
 	win.on("page-title-updated", (event, title) => {
 		if (title.startsWith("OPEN_FILE:")) {
 			event.preventDefault();
 			const filePath = title.replace("OPEN_FILE:", "");
 			console.log("===> Main.js получил реальный путь:", filePath);
-			if (filePath) shell.openPath(filePath).catch((err) => console.log("Ошибка открытия:", err));
+			if (filePath && shell) shell.openPath(filePath).catch((err) => console.log("Ошибка открытия:", err));
 		}
 	});
 }
-app.whenReady().then(createWindow);
+app.on("browser-window-created", (event, newWindow) => {
+	newWindow.webContents.openDevTools();
+});
+app.whenReady().then(() => {
+	createWindow();
+	ipcMain.on("close-current-window", (event) => {
+		const currentWin = BrowserWindow.fromWebContents(event.sender);
+		if (currentWin) currentWin.close();
+	});
+});
 app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") app.quit();
 });

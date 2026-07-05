@@ -6,6 +6,7 @@ import { io } from "socket.io-client";
 import { v1 } from "uuid";
 import { shell } from 'electron';
 import ReactPlayer from 'react-player';
+import { contextBridge, ipcRenderer } from 'electron';
 import './style.css';
 const socket = io("http://localhost:3000", {
     transports: ["websocket"],
@@ -101,6 +102,7 @@ function App() {
         const messagesList = await fff.json()
         const currunt_messages = messagesList.filter((mes) => mes.room === room)
         createMessage(currunt_messages);
+        view(false)
     }
 
 
@@ -136,9 +138,9 @@ function App() {
             const url = `http://localhost:3000/api/rooms?name=${room}`;
             const fff = await fetch(url)
             const usersList = await fff.json()
-            addUser(usersList)
+            addUser(usersList[0].user)
             view(true)
-            console.log(usersList)
+            console.log(usersList[0].user)
         }
     }
     function fileAdder() {
@@ -309,10 +311,22 @@ function App() {
     async function findUser() {
         const userToFind = inputFind.current.value.trim()
         const fff = await fetch(`http://localhost:3000/api/users?name=${userToFind}`)
-        const data = await fff.json() //+ `-${user}`;
+        const data = await fff.json()
         console.log(data)
         socket.emit("new_room", [data.name, user]);
     }
+
+    async function createRoom(url) {
+        if (window.require) {
+            window.open(
+                'http://localhost:5173/creatingMainChat.html',
+                '_blank',
+                'width=800,height=600,frame=true'
+            );
+        } else {
+            console.warn("Запущено в обычном браузере");
+        }
+    };
 
     const ulStyle = { height: "100%", padding: 0 }
     const messageStyle = { backgroundColor: '#f5600a', listStyleType: 'none', padding: '10px', width: 'max-content', display: 'inline-block', borderRadius: '10px' };
@@ -348,6 +362,7 @@ function App() {
     } else if (isAuthenticated) {
         return (
             <>
+                <button onClick={() => createRoom()}>create</button>
                 <input ref={inputFind}></input> <button onClick={() => findUser()}>Find</button>
                 <div style={{ display: 'flex', gap: '20px' }}>
                     <ul style={{ marginLeft: '10px', listStyleType: 'none', margin: 0, padding: 0 }}>
@@ -418,15 +433,15 @@ function App() {
                         )}
                     </span>                     {viewed ? (
                         <span style={{ marginLeft: 'auto' }}>
-                            {users.map((number) => (
+                            {users.map((number, index) => (
                                 <span
-                                    key={number._id}
+                                    key={index}
                                     onContextMenu={(e) => {
                                         e.preventDefault();
                                         selectMessage(number);
                                     }}
                                 >
-                                    {number.user}
+                                    <li key={index}>{number}</li>
 
                                 </span>
                             ))}
@@ -444,9 +459,7 @@ function App() {
 const rootElement = document.getElementById('root');
 const root = ReactDOM.createRoot(rootElement);
 root.render(
-    <React.StrictMode>
-        <App />
-    </React.StrictMode>
+    <App />
 );
 
 //npm run dev

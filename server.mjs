@@ -289,12 +289,14 @@ app.post("/api/rooms", async (req, res) => {
     try {
 
         const data = {
-            name: req.body.name,
-            user: req.body.user
+            name: req.body.text,
+            user: req.body.user,
+            type: req.body.type
         }
         const existingRoom = await collection_rooms.findOne({
-            name: req.body.name,
-            user: req.body.user
+            name: req.body.text,
+            user: req.body.user,
+            type: req.body.type
         });
         if (existingRoom) {
             return res.status(400).json("already exist!!!");

@@ -12,4 +12,8 @@ export default defineConfig({
         renderer()
     ],
     base: './',
+    server: {
+        port: 5173,
+        strictPort: false,
+    }
 });
