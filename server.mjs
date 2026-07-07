@@ -112,7 +112,7 @@ io.on("connection", async (socket) => {
         };
 
         await collection_massages.insertOne(massage);
-
+        io.emit("new_massage", new_message);
         //  io.to("general").emit("new_message", new_message);      //!!!!!!!!!!!!!!!
     })
 
@@ -126,15 +126,15 @@ io.on("connection", async (socket) => {
         };
 
         await collection_massages.deleteOne(massageToDel);
-
+        socket.broadcast.emit("delete_massage_confirm", delete_message);
     });
 
 
 
 
     socket.on("new_room", async (room_name) => {
-        const room = collection_rooms.findOne({ name: room_name[0] })
-        const user = collection_users.findOne({ name: room_name[0] })
+        const room = await collection_rooms.findOne({ name: room_name[0] })
+        const user = await collection_users.findOne({ name: room_name[0] })
         if (room) {
             try {
 
@@ -150,15 +150,18 @@ io.on("connection", async (socket) => {
             } catch (error) {
                 console.error(error);
             }
-        } else {
-            console.log("error");
-        }
-
-        if (user) {
+        } else if (user) {
 
             const nameOfRoom = room_name[0] + " - " + room_name[1]
             const otherNameOfRoom = room_name[1] + " - " + room_name[0]
-            if (collection_rooms.findOne({ $or: [{ name: nameOfRoom }, { name: otherNameOfRoom }] })) { console.log("already exict") }
+
+            const existingRoom = await collection_rooms.findOne({
+                $or: [{ name: nameOfRoom }, { name: otherNameOfRoom }]
+            });
+
+            if (existingRoom) {
+                console.log("already exict")
+            }
             else {
                 const data = {
                     name: nameOfRoom,
@@ -172,10 +175,54 @@ io.on("connection", async (socket) => {
 
     });
 
+    socket.on("set_online", async (user) => {
+
+        await collection_users.updateOne(
+            { name: user },
+            { $set: { online: true } }
+        );
+
+        socket.broadcast.emit("user_status_changed", user);
+    });
+
+    socket.on("set_online", async (user) => {
+        socket.user = user;
+        await collection_users.updateOne(
+            { name: user },
+            { $set: { online: true } }
+        );
+        socket.broadcast.emit("user_status_changed", user);
+    });
+
+    socket.on("disconnect", async () => {
+
+        if (socket.user) {
+            await collection_users.updateOne(
+                { name: socket.user },
+                { $set: { online: false } }
+            );
+            socket.broadcast.emit("user_status_changed", socket.user);
+        }
+    });
 });
 
 server.listen(3000, () => {
     console.log("Server running on http://localhost:3000/");
+});
+
+app.get('/api/users/online', async (req, res) => {
+    try {
+        const onlineUsers = await collection_users
+            .find({ online: true })
+            .project({ name: 1, _id: 0 })
+            .toArray();
+
+        const names = onlineUsers.map(u => u.name);
+        res.json(names);
+        console.log(names)
+    } catch (error) {
+        res.status(500).json([]);
+    }
 });
 
 app.get("/api/users", async (req, res) => {
@@ -266,19 +313,8 @@ app.post("/api/logout", async (req, res) => {
 app.get("/api/rooms", async (req, res) => {
     try {
         const { user } = req.query;
-        const { name } = req.query;
-        if (user) {
-            const userS = await collection_rooms.find({ user: user }).toArray();
-            const roomNames = userS.map(room => room.name);
-            res.status(200).json(roomNames);
-            console.log(userS)
-        }
-
-        if (name) {
-            const roomS = await collection_rooms.find({ name: name }).toArray();
-            const userNames = roomS.map(room => room.user);
-            res.status(200).json(roomS);
-        }
+        const userS = await collection_rooms.find({ user: user }).toArray();
+        res.status(200).json(userS);
     } catch (err) {
         console.log(err);
         res.status(500).json(err.message);
@@ -316,7 +352,6 @@ app.delete("/api/rooms", async (req, res) => {
 
         const user = req.query.user;
         const result = await collection_rooms.deleteOne({ user: user });
-        console.log(result)
         return res.status(201).json(result);
     } catch (err) {
         console.log(err);

@@ -29,22 +29,6 @@ function App() {
     const [logStat, logStatChange] = useState(false)
     const socketRef = useRef(null);
 
-    useEffect(() => {
-
-        socketRef.current = io("http://localhost:3000", {
-            transports: ["websocket"],
-            withCredentials: true
-        });
-
-        socketRef.current.on("connect_error", (err) => {
-            console.error("Ошибка авторизации сокета:", err.message);
-        });
-
-        return () => {
-            if (socketRef.current) socketRef.current.disconnect();
-        };
-    }, []);
-
 
     const [isAuthenticated, setIsAuthenticated] = useState(null);
     const [user, setUser] = useState(null);
@@ -76,10 +60,77 @@ function App() {
             setIsAuthenticated(false);
         });
 
+        socketRef.current.on("connect", () => {
+            socket.emit("set_online", user);
+        });
+
         return () => {
             if (socketRef.current) socketRef.current.disconnect();
         };
     }, [isAuthenticated]);
+
+    useEffect(() => {
+
+        socket.on("new_massage", (newMessage) => {
+            createMessage((message) => [...message, newMessage]);
+        });
+
+        socket.on("delete_massage_confirm", (deletedMessage) => {
+            createMessage((prevMessages) => prevMessages.filter(msg => msg.key !== deletedMessage.key));
+        });
+
+        return () => {
+            socket.off("new_massage");
+            socket.off("delete_massage_confirm");
+        };
+    }, []);
+
+
+    const [onlineUsers, setOnlineUsers] = useState([]);
+
+    useEffect(() => {
+        const loadOnlineUsers = async () => {
+            try {
+                const res = await fetch('http://localhost:3000/api/users/online', {
+                    method: 'GET',
+                    credentials: 'include',
+                });
+
+                if (res.ok) {
+                    const users = await res.json();
+
+                    setOnlineUsers(users) //Array.isArray(users) ? users : []);
+
+                    console.log(users);
+
+                } else {
+                    setOnlineUsers([]);
+                }
+            } catch (error) {
+                console.error(error);
+                setOnlineUsers([]);
+            }
+        };
+
+        loadOnlineUsers();
+
+        const handleStatusChange = (user) => {
+            setOnlineUsers(prev => {
+
+                if (prev.includes(user)) {
+                    return prev.filter(el => el !== user);
+                } else {
+                    return [...prev, user];
+                }
+            });
+        };
+
+        socket.on('user_status_changed', handleStatusChange);
+
+        return () => {
+            socket.off('user_status_changed', handleStatusChange);
+        };
+    }, []);
 
     const onLoginSuccess = () => {
         setIsAuthenticated(true);
@@ -105,11 +156,26 @@ function App() {
         view(false)
     }
 
-
+    const [privateRooms, setPrivateRooms] = useState([])
     async function fetching(currentUser) {
-        const fff = await fetch(`http://localhost:3000/api/rooms?user=${currentUser}`)
-        const jsonchik = await fff.json()
-        setArr(jsonchik)
+        const response = await fetch(`http://localhost:3000/api/rooms?user=${currentUser}`)
+        const rooms = await response.json()
+
+        const privateRooms = rooms.filter((room) => room.type === "private")
+
+        const updatedList = rooms.map((room) => {
+            if (room.type === "private" && room.name.includes(currentUser)) {
+                return {
+                    ...room,
+                    mainName: room.name,
+                    name: room.name.split(" ").filter((word) => word !== currentUser && word !== "-")[0]
+                };
+            }
+            return room;
+        });
+        setPrivateRooms(privateRooms)
+        setArr(updatedList)
+        console.log(privateRooms)
     }
 
     const inputRef = useRef();
@@ -221,7 +287,7 @@ function App() {
                 room: room,
                 type: "messages"
             }
-            createMessage([...message, mes]);
+
             socket.emit("new_massage", mes);
             inputRef.current.value = ""
         }
@@ -229,17 +295,7 @@ function App() {
 
     const handleKeyDown = (event) => {
         if (event.key === 'Enter') {
-            const mes = {
-                text: inputRef.current.value.trim(),
-                key: v1(),
-                user: user,
-                room: room,
-                type: "messages"
-            }
-
-            createMessage([...message, mes]);
-            socket.emit("new_massage", mes);
-            inputRef.current.value = ""
+            sendMessage()
         }
     };
 
@@ -319,7 +375,7 @@ function App() {
     async function createRoom(url) {
         if (window.require) {
             window.open(
-                'http://localhost:5173/creatingMainChat.html',
+                'http://localhost:5173/creatingMainChat.htm',
                 '_blank',
                 'width=800,height=600,frame=true'
             );
@@ -343,6 +399,7 @@ function App() {
 
                 <button onClick={registration}>Submit</button>
                 <button onClick={logStatTrue}>login</button>
+                <button onClick={() => createRoom()}>create</button>
             </>
         )
     } else if (isAuthenticated === false && logStat) {
@@ -372,7 +429,11 @@ function App() {
                                 key={index}
                                 className="hover-li"
                             >
-                                {JSON.stringify(item)}
+                                {JSON.stringify(item.name)} {item.type === 'private' && (
+                                    onlineUsers.includes(item.otherUserName)
+                                        ? 'online'
+                                        : 'offline'
+                                )}
                             </li>
                         ))}
                     </ul>
