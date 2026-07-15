@@ -19,26 +19,27 @@ function App() {
     const [room, setRoom] = useState(null);
     const [joined, accept] = useState(false);
     const [arr, setArr] = useState([]);
-    const [users, addUser] = useState(null);
+    const [users, setUser] = useState(null);
     const [viewed, view] = useState(false);
     const [files, setFiles] = useState(null);
     const [add, fileAdded] = useState("text");
     const [message, createMessage] = useState([]);
     const [selectedMessage, selectMessage] = useState(null)
+    const [selectedUser, selectUser] = useState(null)
     const [option, optionChanger] = useState(null)
     const [logStat, logStatChange] = useState(false)
     const socketRef = useRef(null);
-
+    const [addInput, addUserInput] = useState(false)
 
     const [isAuthenticated, setIsAuthenticated] = useState(null);
-    const [user, setUser] = useState(null);
+    const [user, setCurrentUser] = useState(null);
     useEffect(() => {
         fetch("http://localhost:3000/api/auth/me", { credentials: "include" })
             .then(res => res.json())
             .then(data => {
                 if (data.authorized) {
                     setIsAuthenticated(true);
-                    setUser(data.user)
+                    setCurrentUser(data.user)
                     fetching(data.user)
                 } else {
                     setIsAuthenticated(false);
@@ -71,17 +72,45 @@ function App() {
 
     useEffect(() => {
 
-        socket.on("new_massage", (newMessage) => {
-            createMessage((message) => [...message, newMessage]);
+        socket.on("newRoom_added", (newRoom) => {
+            setArr((arr) => [...arr, newRoom]);
+            fetching(newRoom.user[1])
+        });
+
+        socket.on("user_leaved", (leavedUser) => {
+            setArr((prevMessages) => prevMessages.filter(msg => msg !== leavedUser[0].name));
+            setUser((prevMessages) => prevMessages.filter(msg => msg !== leavedUser[1]));
+            accept(false)
+        });
+
+        socket.on("user_added", (newUser) => {
+            setUser((users) => [...users, newUser]);
+        });
+
+        socket.on("room_created", (newRoom) => {
+            setArr((arr) => [...arr, newRoom]);
         });
 
         socket.on("delete_massage_confirm", (deletedMessage) => {
             createMessage((prevMessages) => prevMessages.filter(msg => msg.key !== deletedMessage.key));
         });
 
+        socket.on("delete_user_confirm", (deletedUser) => {
+            setUser((prevUsers) => prevUsers.filter(user => user !== deletedUser));
+        });
+
+        socket.on("new_massage", (newMessage) => {
+            createMessage((message) => [...message, newMessage]);
+        });
+
         return () => {
+            socket.off("newRoom_added");
+            socket.off("user_leaved");
+            socket.off("user_added");
+            socket.off("room_created");
             socket.off("new_massage");
             socket.off("delete_massage_confirm");
+            socket.off("delete_user_confirm");
         };
     }, []);
 
@@ -140,19 +169,16 @@ function App() {
         socket.emit("join_room", room);
         setRoom(room)
         accept(true)
-        console.log(room)
-        const params = decodeURIComponent(room);
-        const url = `http://localhost:3000/api/massages?room=${params}`;
-        const fff = await fetch(url, {
+        const url = `http://localhost:3000/api/massages?room=${room.name}`;
+        const fff = await fetch(`http://localhost:3000/api/massages?room=${room.name}`, {
+            method: 'GET',
             headers: {
                 'Accept': 'application/json'
             }
         })
-        createMessage([])
-        console.log(message)
         const messagesList = await fff.json()
-        const currunt_messages = messagesList.filter((mes) => mes.room === room)
-        createMessage(currunt_messages);
+        createMessage([])
+        createMessage(messagesList);
         view(false)
     }
 
@@ -164,49 +190,48 @@ function App() {
         const privateRooms = rooms.filter((room) => room.type === "private")
 
         const updatedList = rooms.map((room) => {
-            if (room.type === "private" && room.name.includes(currentUser)) {
+            if (room.type === "private" && room.user.includes(currentUser)) {
                 return {
                     ...room,
                     mainName: room.name,
-                    name: room.name.split(" ").filter((word) => word !== currentUser && word !== "-")[0]
+                    name: room.user.filter((el) => el !== currentUser)[0]
                 };
             }
             return room;
         });
         setPrivateRooms(privateRooms)
         setArr(updatedList)
-        console.log(privateRooms)
     }
 
     const inputRef = useRef();
     const inputFind = useRef();
+    const inputAdd = useRef();
 
     function optionsHendler(option) {
-        if (option === "delete") {
-            const updatedMessage = message.filter((mes) => mes.key !== selectedMessage.key)
-            createMessage(updatedMessage)
-            const mesToDel = {
-                text: selectedMessage.text,
-                key: selectedMessage.key,
-                user: user,
-                room: room
-            }
-            socket.emit("delete_message", mesToDel);
+        if (selectedMessage) {
+            socket.emit("delete_message", selectedMessage.key);
+            createMessage((prevMessages) => prevMessages.filter(msg => msg.key !== selectedMessage.key));
+        } else if (selectedUser) {
+            socket.emit("delete_user", [room, selectedUser]);
+            setUser((prevUsers) => prevUsers.filter(user => user !== selectedUser));
         }
     }
-
 
     async function viewMembers() {
         if (viewed) {
             view(false)
         } else {
-            addUser(null)
-            const url = `http://localhost:3000/api/rooms?name=${room}`;
-            const fff = await fetch(url)
-            const usersList = await fff.json()
-            addUser(usersList[0].user)
+            // setUser(null)
+            const url = `http://localhost:3000/api/rooms/user?name=${room.name}`;
+            const fff = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+            const roomInfo = await fff.json()
+            setUser(roomInfo.user)
             view(true)
-            console.log(usersList[0].user)
         }
     }
     function fileAdder() {
@@ -282,10 +307,10 @@ function App() {
         if (inputRef.current.value.trim().length > 1) {
             const mes = {
                 text: inputRef.current.value.trim(),
-                key: v1(),
                 user: user,
-                room: room,
-                type: "messages"
+                room: room.name,
+                type: "text",
+                key: v1()
             }
 
             socket.emit("new_massage", mes);
@@ -366,16 +391,16 @@ function App() {
 
     async function findUser() {
         const userToFind = inputFind.current.value.trim()
-        const fff = await fetch(`http://localhost:3000/api/users?name=${userToFind}`)
-        const data = await fff.json()
-        console.log(data)
-        socket.emit("new_room", [data.name, user]);
+        if (userToFind !== user) {
+            socket.emit("new_room", [userToFind, user]);
+        }
+        inputFind.current.value = ""
     }
 
-    async function createRoom(url) {
+    async function createRoom() {
         if (window.require) {
             window.open(
-                'http://localhost:5173/creatingMainChat.htm',
+                'http://localhost:5173/creatingMainChat.html',
                 '_blank',
                 'width=800,height=600,frame=true'
             );
@@ -384,139 +409,193 @@ function App() {
         }
     };
 
-    const ulStyle = { height: "100%", padding: 0 }
-    const messageStyle = { backgroundColor: '#f5600a', listStyleType: 'none', padding: '10px', width: 'max-content', display: 'inline-block', borderRadius: '10px' };
+    function addUser() {
+
+        (addInput) ? addUserInput(false) : addUserInput(true)
+
+        if (inputAdd.current.value.trim().length > 1) {
+            socket.emit("new_user", [room, inputAdd.current.value, user])
+            inputAdd.current.value = ""
+        };
+
+    }
+
+    function leave(user) {
+        socket.emit("leave", [room, user])
+    }
+
     if (isAuthenticated === false && logStat === false) {
         return (
             <>
-                <h1>registration</h1>
-                <h2>Name</h2>
-                <input name="name" ref={inputName} type={"text"} className="input" onChange={handleChange} />
-                <h2>Email</h2>
-                <input name="email" ref={inputEmail} type={"text"} className="input" onChange={handleChange} />
-                <h2>Password</h2>
-                <input name="password" ref={inputPassword} type={"text"} className="input" onChange={handleChange} />
-
-                <button onClick={registration}>Submit</button>
-                <button onClick={logStatTrue}>login</button>
-                <button onClick={() => createRoom()}>create</button>
+                <h2>Регистрация</h2>
+                <div className="input-group">
+                    <label>Имя</label>
+                    <input name="name" ref={inputName} type="text" onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                </div>
+                <div className="input-group">
+                    <label>Email</label>
+                    <input name="email" ref={inputEmail} type="email" onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                </div>
+                <div className="input-group">
+                    <label>Пароль</label>
+                    <input name="password" ref={inputPassword} type="password" onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                </div>
+                <button className="btn btn-primary" onClick={registration}>Создать аккаунт</button>
+                <p className="auth-switch">Уже есть аккаунт? <span onClick={() => logStatChange(true)}>Войти</span></p>
             </>
         )
     } else if (isAuthenticated === false && logStat) {
         return (
             <>
-                <h1>login</h1>
-
-                <h2>Email</h2>
-                <input name="email" ref={inputEmail} type={"text"} className="input" onChange={handleLog} />
-                <h2>Password</h2>
-                <input name="password" ref={inputPassword} type={"text"} className="input" onChange={handleLog} />
-
-                <button onClick={logIn}>Submit</button>
-                <button onClick={logStatFalse}>registration</button>
+                <h2>login</h2>
+                <div className="input-group">
+                    <label>Email</label>
+                    <input name="email" ref={inputEmail} type="email" onChange={handleLog} />
+                </div>
+                <div className="input-group">
+                    <label>Password</label>
+                    <input name="password" ref={inputPassword} type="password" onChange={handleLog} />
+                    <button className="btn btn-primary" onClick={logIn}>Submit</button>
+                    <button className="btn btn-primary" onClick={logStatFalse}>registration</button>
+                </div>
             </>
         )
     } else if (isAuthenticated) {
         return (
-            <>
-                <button onClick={() => createRoom()}>create</button>
-                <input ref={inputFind}></input> <button onClick={() => findUser()}>Find</button>
-                <div style={{ display: 'flex', gap: '20px' }}>
-                    <ul style={{ marginLeft: '10px', listStyleType: 'none', margin: 0, padding: 0 }}>
+            <div className="app-layout" onDragOver={(e) => e.preventDefault()} onDrop={uploader}>
+
+                <div className="sidebar-actions">
+                    <button onClick={createRoom} className="action-btn" title="Create room">+</button>
+                </div>
+
+                <div className="sidebar-chats">
+                    <div className="search-box">
+                        <input ref={inputFind} placeholder="Find chat..." />
+                        <button onClick={findUser} className="btn-search">🔍</button>
+                    </div>
+                    <ul className="chat-list">
                         {arr.map((item, index) => (
-                            <li
-                                onClick={() => joiningRoom(item)}
-                                key={index}
-                                className="hover-li"
-                            >
-                                {JSON.stringify(item.name)} {item.type === 'private' && (
-                                    onlineUsers.includes(item.otherUserName)
-                                        ? 'online'
-                                        : 'offline'
+                            <li key={index} onClick={() => joiningRoom(item)} className={`chat-item ${room?.name === item.name ? 'active' : 'offline'}`}>
+                                <span className="chat-name">{item.name}</span>
+                                {item.type === 'private' && (
+                                    <span className={`status-dot ${onlineUsers.includes(item.otherUserName) ? 'online' : 'offline'}`} />
                                 )}
                             </li>
                         ))}
                     </ul>
+                </div>
 
-                    <span>
-                        {joined ? (
-                            <span style={{ marginLeft: 10, position: 'fixed', top: 0, right: 100, width: '81.4vw', height: '100vh', zIndex: 9999 }} onDrop={uploader} onDragOver={uploader}>
-                                {message.map((number) => (
-                                    <span
-                                        style={{ ...messageStyle, display: 'block', marginBottom: '10px' }}
-                                        key={number.key}
-                                        onContextMenu={(e) => {
-                                            e.preventDefault();
-                                            selectMessage(number);
-                                        }}
-                                    >
+                <div className="chat-area">
+                    {joined ? (
+                        <>
+                            {room.type === "main" ? (
+                                <div className="chat-header">
+                                    <h3>{room?.name}</h3>
+                                    <button onClick={viewMembers} className="btn-icon">👥 Members</button>
+                                </div>
+                            ) : (
+                                <div className="chat-header">
+                                    <h3>{room?.name}</h3>
+                                </div>
+                            )}
 
-                                        {number.text && (
-                                            <span style={{ ...messageStyle }}>{number.user}: {number.text}; </span>
-                                        )}
+                            <div className="messages-container">
+                                {message.map((msg) => (
+                                    <div key={msg.key} className={`message-wrapper ${msg.user === user ? 'own' : ''}`} onContextMenu={(e) => { e.preventDefault(); selectMessage(msg); }}>
+                                        <div className="message-box">
+                                            <div className="message-meta">{msg.user}</div>
+                                            {msg.type === 'text' && <p className="message-text">{msg.text}</p>}
+                                            {msg.type === 'jpeg' && <img src={msg.path} className="message-media" alt="uploaded" />}
+                                            {msg.type === 'mp4' && <ReactPlayer url={msg.path} controls width="100%" height="auto" />}
 
-                                        {number.type === 'jpeg' && (
-                                            <img src={number.path} width="300" height="200" alt="uploaded" />
-                                        )}
-
-                                        {number.type === 'mp4' && (
-                                            <ReactPlayer url={number.path} controls={true} width="300" height="200" />
-                                        )}
-                                        {selectedMessage === number && (
-                                            <select
-                                                style={{ marginLeft: '10px' }}
-                                                onChange={(event) => optionsHendler(event.target.value)}
-                                            >
-                                                <option value="delete">Delete</option>
-                                                <option value="change">Change</option>
-                                            </select>
-                                        )}
-                                    </span>
+                                            {selectedMessage === msg && (room.admin?.includes(user) || msg.user === user) && (
+                                                <select className="message-actions" onChange={(e) => optionsHendler(e.target.value)}>
+                                                    <option value="">...</option>
+                                                    <option value="delete">Delete</option>
+                                                </select>
+                                            )}
+                                        </div>
+                                    </div>
                                 ))}
-                                <input name="messInput" ref={inputRef} type={add} onChange={uploader} className="input" onKeyDown={(e) => e.key === 'Enter' && sendMessage()} />
-                                <>
-                                    <button onClick={() => sendMessage()} className="img-btn">
-                                        <img src="/img/images.png" alt="" className="img-for-btn" />
-                                    </button>
+                            </div>
 
-                                    <button onClick={() => viewMembers()} className="img-btn">
-                                        <img src="/img/users.png" alt="" className="img-for-btn" />
-                                    </button>
+                            <div className="chat-footer">
+                                <button onClick={fileAdder} className="btn-icon">📎</button>
+                                <input
+                                    ref={inputRef}
+                                    type={add}
+                                    placeholder="Write a message..."
+                                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                                    onChange={add === 'file' ? uploader : undefined}
+                                />
+                                <button onClick={sendMessage} className="btn-send">Send</button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="chat-empty">
+                            <p>Choose the room</p>
+                        </div>
+                    )}
+                </div>
 
-                                    <button onClick={() => fileAdder()} className="img-btn">
-                                        <img src="/img/file.png" alt="" className="img-for-btn" />
-                                    </button>
-                                </>
+                {viewed && users ? (
+                    <div className="sidebar-members">
+                        <h4>Members</h4>
 
-                            </span>
-                        ) : (
-                            <span>васап</span>
-                        )}
-                    </span>                     {viewed ? (
-                        <span style={{ marginLeft: 'auto' }}>
-                            {users.map((number, index) => (
-                                <span
-                                    key={index}
+                        <ul className="members-list">
+                            {users.map((member, index) => (
+                                <li
+                                    key={`member-item-${member}-${index}`}
+                                    className={`member-item ${selectedMessage === member ? 'selected' : ''}`}
                                     onContextMenu={(e) => {
                                         e.preventDefault();
-                                        selectMessage(number);
+                                        selectUser(member);
                                     }}
                                 >
-                                    <li key={index}>{number}</li>
+                                    <div className="member-info">
+                                        <span className="member-name">@{member}</span>
+                                        {room?.admin?.includes(member) && <span className="badge-admin">admin</span>}
+                                    </div>
 
-                                </span>
+                                    {selectedUser === member && room?.admin?.includes(user) && (
+                                        <div className="member-actions-wrapper">
+                                            <select
+                                                className="select-minimal"
+                                                onChange={(e) => optionsHendler(e.target.value)}
+                                                defaultValue=""
+                                            >
+                                                <option value="" disabled>...</option>
+                                                <option value="delete">Удалить</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                </li>
                             ))}
-                        </span>
-                    ) : (
-                        <span></span>
-                    )}
+                        </ul>
 
-                </div>
-            </>
-        )
+                        <div className="members-controls">
+                            <button className="btn btn-primary" onClick={() => addUser()}>addUser</button>
+                            <button className="btn btn-danger" onClick={() => leave(user)}>leave</button>
+                        </div>
+
+                        {addInput ? (
+                            <div className="search-box">
+                                <input
+                                    placeholder="Write a user..."
+                                    onKeyDown={(e) => e.key === 'Enter' && addUser()}
+                                    ref={inputAdd}
+                                    type="text"
+                                />
+                            </div>
+                        ) : (
+                            <div></div>
+                        )}
+                    </div>
+                ) : null}
+            </div>
+        );
     }
 }
-
 const rootElement = document.getElementById('root');
 const root = ReactDOM.createRoot(rootElement);
 root.render(

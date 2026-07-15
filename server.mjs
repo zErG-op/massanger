@@ -106,74 +106,106 @@ io.on("connection", async (socket) => {
 
         const massage = {
             text: new_message.text,
-            key: new_message.key,
             user: new_message.user,
-            room: new_message.room
+            room: new_message.room,
+            type: new_message.type,
+            key: new_message.key
         };
 
         await collection_massages.insertOne(massage);
         io.emit("new_massage", new_message);
-        //  io.to("general").emit("new_message", new_message);      //!!!!!!!!!!!!!!!
     })
 
-    socket.on("delete_message", async (delete_message) => {
+    socket.on("delete_message", async (key) => {
 
-        const massageToDel = {
-            text: delete_message.text,
-            key: delete_message.key,
-            user: delete_message.user,
-            room: delete_message.room
-        };
-
-        await collection_massages.deleteOne(massageToDel);
-        socket.broadcast.emit("delete_massage_confirm", delete_message);
+        const message = await collection_massages.findOne({ key: key });
+        await collection_massages.deleteOne(message);
+        socket.broadcast.emit("delete_massage_confirm", key);
     });
 
+    socket.on("delete_user", async (key) => {
 
+        const result = await collection_rooms.updateOne(
+            { name: key[0] },
+            { $pull: { user: key[1] } }
+        );
 
+        socket.broadcast.emit("delete_user_confirm", key);
+    });
 
     socket.on("new_room", async (room_name) => {
         const room = await collection_rooms.findOne({ name: room_name[0] })
         const user = await collection_users.findOne({ name: room_name[0] })
-        if (room) {
-            try {
 
-                const newUserName = String(room_name[1]).trim();
+        if (user) {
 
-                socket.join(room_name[0]);
-
-                const result = await collection_rooms.updateOne(
-                    { name: room_name[0] },
-                    { $addToSet: { user: newUserName } }
-                );
-
-            } catch (error) {
-                console.error(error);
-            }
-        } else if (user) {
-
-            const nameOfRoom = room_name[0] + " - " + room_name[1]
-            const otherNameOfRoom = room_name[1] + " - " + room_name[0]
-
-            const existingRoom = await collection_rooms.findOne({
-                $or: [{ name: nameOfRoom }, { name: otherNameOfRoom }]
-            });
+            const nameOfRoom = room_name[0] + "-" + room_name[1]
+            const otherNameOfRoom = room_name[1] + "-" + room_name[0]
+            const existingRoom = await collection_rooms.findOne({ $or: [{ name: nameOfRoom }, { name: otherNameOfRoom }] });
 
             if (existingRoom) {
                 console.log("already exict")
-            }
-            else {
+            } else {
                 const data = {
                     name: nameOfRoom,
                     user: room_name,
                     type: "private"
                 }
-                socket.join(nameOfRoom);
+
                 await collection_rooms.insertOne(data)
+                socket.join(nameOfRoom);
+                socket.emit("newRoom_added", data);
+            }
+        } else if (room) {
+
+            const doc = await collection_rooms.findOne({
+                name: room_name[0],
+                user: room_name[1]
+            });
+
+            if (doc) {
+                console.log("already e")
+            } else {
+                const newUserName = room_name[1];
+
+                const result = await collection_rooms.updateOne(
+                    { name: room_name[0] },
+                    { $addToSet: { user: newUserName } }
+                );
+                socket.join(room_name[0]);
+                socket.emit("newRoom_added", room);
+
             }
         }
-
     });
+
+    socket.on("create_room", async (room) => {
+        try {
+
+            const data = {
+                name: room.text,
+                user: room.user,
+                admin: room.admin,
+                type: room.type
+            }
+            const existingRoom = await collection_rooms.findOne({
+                name: room.text,
+                user: room.user,
+                admin: room.admin,
+                type: room.type
+            });
+            if (existingRoom) {
+                console.log("already exist!!!");
+            } else {
+                const result = await collection_rooms.insertOne(data);
+                socket.broadcast.emit("room_created", data);
+            }
+
+        } catch (err) {
+            console.log(err);
+        }
+
+    })
 
     socket.on("set_online", async (user) => {
 
@@ -204,6 +236,31 @@ io.on("connection", async (socket) => {
             socket.broadcast.emit("user_status_changed", socket.user);
         }
     });
+
+    socket.on("new_user", async (data) => {
+        const user = await collection_users.findOne({ name: data[1] })
+        const users = await collection_rooms.findOne({
+            "name": data[0].name,
+            "user": { $ne: data[1] }
+        })
+        if (user && users !== null) {
+            await collection_rooms.updateOne(
+                { name: data[0].name },
+                { $push: { user: data[1] } }
+            );
+            socket.emit("user_added", data[1]);
+        }
+    });
+
+    socket.on("leave", async (data) => {
+
+        collection_rooms.updateOne(
+            { "name": data[0].name },
+            { $pull: { "user": data[1] } }
+        )
+        socket.emit("user_leaved", data);
+    });
+
 });
 
 server.listen(3000, () => {
@@ -219,21 +276,10 @@ app.get('/api/users/online', async (req, res) => {
 
         const names = onlineUsers.map(u => u.name);
         res.json(names);
-        console.log(names)
     } catch (error) {
         res.status(500).json([]);
     }
 });
-
-app.get("/api/users", async (req, res) => {
-    try {
-        const info = req.query
-        res.json(info)
-    } catch (err) {
-        console.log(err);
-        res.status(500).json(err.message);
-    }
-})
 
 app.post("/api/users", async (req, res) => {
     try {
@@ -321,31 +367,16 @@ app.get("/api/rooms", async (req, res) => {
     }
 })
 
-app.post("/api/rooms", async (req, res) => {
+app.get("/api/rooms/user", async (req, res) => {
     try {
-
-        const data = {
-            name: req.body.text,
-            user: req.body.user,
-            type: req.body.type
-        }
-        const existingRoom = await collection_rooms.findOne({
-            name: req.body.text,
-            user: req.body.user,
-            type: req.body.type
-        });
-        if (existingRoom) {
-            return res.status(400).json("already exist!!!");
-        } else {
-            const result = await collection_rooms.insertOne(data);
-            return res.status(201).json(result);
-        }
-
+        const name = req.query.name;
+        const userS = await collection_rooms.findOne({ name: name });
+        res.status(200).json(userS);
     } catch (err) {
         console.log(err);
-        res.status(500).json(err);
+        res.status(500).json(err.message);
     }
-});
+})
 
 app.delete("/api/rooms", async (req, res) => {
     try {
