@@ -7,7 +7,10 @@ import { v1 } from "uuid";
 import { shell } from 'electron';
 import ReactPlayer from 'react-player';
 import { contextBridge, ipcRenderer } from 'electron';
+import { PhotoProvider, PhotoView } from 'react-photo-view';
+import 'react-photo-view/dist/react-photo-view.css';
 import './style.css';
+
 const socket = io("http://localhost:3000", {
     transports: ["websocket"],
     withCredentials: true,
@@ -40,7 +43,8 @@ function App() {
                 if (data.authorized) {
                     setIsAuthenticated(true);
                     setCurrentUser(data.user)
-                    fetching(data.user)
+                    fetchRooms(data.user)
+                    console.log(data.user)
                 } else {
                     setIsAuthenticated(false);
                 }
@@ -63,6 +67,7 @@ function App() {
 
         socketRef.current.on("connect", () => {
             socket.emit("set_online", user);
+            console.log(user)
         });
 
         return () => {
@@ -72,13 +77,17 @@ function App() {
 
     useEffect(() => {
 
+        socket.on("room_change_confirm", (user) => {
+            fetchRooms(user)
+            console.log("user", user)
+        });
+
         socket.on("newRoom_added", (newRoom) => {
             setArr((arr) => [...arr, newRoom]);
-            fetching(newRoom.user[1])
         });
 
         socket.on("user_leaved", (leavedUser) => {
-            setArr((prevMessages) => prevMessages.filter(msg => msg !== leavedUser[0].name));
+            setArr((prevMessages) => prevMessages.filter(msg => msg.name !== leavedUser[0].name));
             setUser((prevMessages) => prevMessages.filter(msg => msg !== leavedUser[1]));
             accept(false)
         });
@@ -104,6 +113,7 @@ function App() {
         });
 
         return () => {
+            socket.off("room_change_confirm");
             socket.off("newRoom_added");
             socket.off("user_leaved");
             socket.off("user_added");
@@ -128,7 +138,7 @@ function App() {
                 if (res.ok) {
                     const users = await res.json();
 
-                    setOnlineUsers(users) //Array.isArray(users) ? users : []);
+                    setOnlineUsers(users)
 
                     console.log(users);
 
@@ -165,7 +175,22 @@ function App() {
         setIsAuthenticated(true);
     };
 
+    async function fetchRooms(currentUser) {
+        console.log("currentUser:", currentUser)
+        try {
+            const response = await fetch(`http://localhost:3000/api/rooms?user=${encodeURIComponent(currentUser)}`);
+            const roomS = await response.json();
+
+            setArr(roomS);
+            console.log(roomS)
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+
     const joiningRoom = async (room) => {
+        view(false)
         socket.emit("join_room", room);
         setRoom(room)
         accept(true)
@@ -179,37 +204,18 @@ function App() {
         const messagesList = await fff.json()
         createMessage([])
         createMessage(messagesList);
-        view(false)
     }
 
     const [privateRooms, setPrivateRooms] = useState([])
-    async function fetching(currentUser) {
-        const response = await fetch(`http://localhost:3000/api/rooms?user=${currentUser}`)
-        const rooms = await response.json()
-
-        const privateRooms = rooms.filter((room) => room.type === "private")
-
-        const updatedList = rooms.map((room) => {
-            if (room.type === "private" && room.user.includes(currentUser)) {
-                return {
-                    ...room,
-                    mainName: room.name,
-                    name: room.user.filter((el) => el !== currentUser)[0]
-                };
-            }
-            return room;
-        });
-        setPrivateRooms(privateRooms)
-        setArr(updatedList)
-    }
 
     const inputRef = useRef();
     const inputFind = useRef();
     const inputAdd = useRef();
+    const fileInputRef = useRef(null);
 
     function optionsHendler(option) {
         if (selectedMessage) {
-            socket.emit("delete_message", selectedMessage.key);
+            socket.emit("delete_message", selectedMessage);
             createMessage((prevMessages) => prevMessages.filter(msg => msg.key !== selectedMessage.key));
         } else if (selectedUser) {
             socket.emit("delete_user", [room, selectedUser]);
@@ -221,7 +227,6 @@ function App() {
         if (viewed) {
             view(false)
         } else {
-            // setUser(null)
             const url = `http://localhost:3000/api/rooms/user?name=${room.name}`;
             const fff = await fetch(url, {
                 method: 'GET',
@@ -230,12 +235,25 @@ function App() {
                 }
             })
             const roomInfo = await fff.json()
-            setUser(roomInfo.user)
+            setUser(roomInfo.user.map(el => el.name))
             view(true)
         }
     }
+
+    const handleSend = (e) => {
+        if (add === 'file') {
+            uploader(e);
+        } else {
+            sendMessage();
+        }
+    };
+
     function fileAdder() {
-        fileAdded("file")
+        fileAdded("file");
+
+        if (fileInputRef.current) {
+            fileInputRef.current.click();
+        }
     }
 
     const sendFiles = async (e) => {
@@ -253,49 +271,54 @@ function App() {
         const url = data.path.slice(2).split(/[\\/]/).pop();
         const serverUrl = `http://localhost:5173/uploads/${url}`;
 
-
-
-
         let fullName = String(e.type).split("")
         let type
 
         for (let i = 0; i < fullName.length; i++) {
             if (fullName[i] === "/") {
                 type = fullName.slice(i - fullName.length + 1).join("")
-                console.log(type)
-                console.log("гойда")
-
             }
         }
+
+        let fileType = "file";
+
+        if (e.type.startsWith("image/")) {
+            fileType = "jpeg";
+        } else if (e.type.startsWith("video/")) {
+            fileType = "mp4";
+        } else {
+            fileType = "file";
+        }
+
+        let roomName
+
+        if (room.mainName) { roomName = room.mainName; } else { roomName = room.name; }
 
         const file = {
             path: serverUrl,
             key: v1(),
             user: user,
-            room: room,
-            type: type
-        }
-        createMessage([...message, file]);
-        console.log("file: ", file)
+            room: roomName,
+            type: fileType,
+            text: e.name
+        };
+
+        socket.emit("new_massage", file);
     };
 
     const uploader = (e) => {
         e.preventDefault();
-        const selectedFiles = e.dataTransfer.files;
+        const selectedFiles = e.dataTransfer?.files || e.target?.files;
 
-        if (!selectedFiles || selectedFiles.length === 0) {
-            console.log("Файл не выбран в проводнике");
-            return;
-        }
+        if (!selectedFiles || selectedFiles.length === 0) return
 
         const targetFile = selectedFiles[0];
-        console.log("Файл подготовлен к отправке:", targetFile.name);
+
         setFiles(targetFile);
         sendFiles(targetFile);
 
         e.target.value = "";
-        fileAdded("text")
-
+        fileAdded("text");
     };
 
     const handleDragOver = (e) => {
@@ -305,10 +328,12 @@ function App() {
 
     function sendMessage() {
         if (inputRef.current.value.trim().length > 1) {
+            let roomName
+            if (room.mainName) { roomName = room.mainName; } else { roomName = room.name; }
             const mes = {
                 text: inputRef.current.value.trim(),
                 user: user,
-                room: room.name,
+                room: roomName,
                 type: "text",
                 key: v1()
             }
@@ -327,7 +352,6 @@ function App() {
     const fileOpen = (filePath) => {
         if (!filePath) return;
         document.title = `OPEN_FILE:${filePath}`;
-        console.log("React: Отправили путь через заголовок:", filePath);
     };
 
     const inputName = useRef();
@@ -356,7 +380,7 @@ function App() {
 
     const registration = async () => {
 
-        const response = await fetch('http://localhost:3000/api/users', {
+        const response = await fetch('http://localhost:3000/api/registration', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -391,9 +415,7 @@ function App() {
 
     async function findUser() {
         const userToFind = inputFind.current.value.trim()
-        if (userToFind !== user) {
-            socket.emit("new_room", [userToFind, user]);
-        }
+        if (userToFind !== user) { socket.emit("new_room", [userToFind, user]) };
         inputFind.current.value = ""
     }
 
@@ -405,7 +427,32 @@ function App() {
                 'width=800,height=600,frame=true'
             );
         } else {
-            console.warn("Запущено в обычном браузере");
+            console.warn("err");
+        }
+    };
+
+    async function viewMyProfile() {
+        if (window.require) {
+            window.open(
+                'http://localhost:5173/myProfile.html',
+                '_blank',
+                'width=800,height=600,frame=true'
+            );
+        } else {
+            console.warn("err");
+        }
+    };
+
+    async function viewTheRoom() {
+        if (window.require) {
+
+            const childWindow = window.open(
+                `http://localhost:5173/changingRoomSettings.html?room=${room.name}`,
+                '_blank',
+                'width=800,height=600,frame=true,nodeIntegration=no,contextIsolation=yes'
+            );
+        } else {
+            console.warn("err");
         }
     };
 
@@ -421,51 +468,120 @@ function App() {
     }
 
     function leave(user) {
+        view(false)
         socket.emit("leave", [room, user])
     }
 
+    function roomName(room) {
+        return room[1] === "private" ? room[0].map(item => item.name).filter((us) => us !== user) : room[2]
+    }
+
+    function roomAvatar(room) {
+        return room.user.filter(item => item.name !== user)[0].avatar
+    }
+    function roomAvdmin(room) {
+        return room[0].admin.map(el => el.name).includes(room[1])
+    }
+
+    function consol(room) {
+        console.log(room)
+    }
     if (isAuthenticated === false && logStat === false) {
         return (
-            <>
-                <h2>Регистрация</h2>
-                <div className="input-group">
-                    <label>Имя</label>
-                    <input name="name" ref={inputName} type="text" onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+            <div className="auth-container">
+                <div className="auth-card">
+                    <h2>Create Account</h2>
+
+                    <div className="input-group">
+                        <label>Name</label>
+                        <input
+                            name="name"
+                            ref={inputName}
+                            type="text"
+                            placeholder="Enter your name..."
+                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="input-group">
+                        <label>Email</label>
+                        <input
+                            name="email"
+                            ref={inputEmail}
+                            type="email"
+                            placeholder="Enter your email..."
+                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        />
+                    </div>
+
+                    <div className="input-group">
+                        <label>Password</label>
+                        <input
+                            name="password"
+                            ref={inputPassword}
+                            type="password"
+                            placeholder="••••••••"
+                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        />
+                    </div>
+
+                    <button className="btn btn-primary" onClick={registration}>
+                        Create account
+                    </button>
+
+                    <p className="auth-switch">
+                        Already have account? <span onClick={() => logStatChange(true)}>Login</span>
+                    </p>
                 </div>
-                <div className="input-group">
-                    <label>Email</label>
-                    <input name="email" ref={inputEmail} type="email" onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-                </div>
-                <div className="input-group">
-                    <label>Пароль</label>
-                    <input name="password" ref={inputPassword} type="password" onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
-                </div>
-                <button className="btn btn-primary" onClick={registration}>Создать аккаунт</button>
-                <p className="auth-switch">Уже есть аккаунт? <span onClick={() => logStatChange(true)}>Войти</span></p>
-            </>
-        )
+            </div>
+        );
     } else if (isAuthenticated === false && logStat) {
         return (
-            <>
-                <h2>login</h2>
-                <div className="input-group">
-                    <label>Email</label>
-                    <input name="email" ref={inputEmail} type="email" onChange={handleLog} />
+            <div className="auth-container">
+                <div className="auth-card">
+                    <h2>Login</h2>
+
+                    <div className="input-group">
+                        <label>Email</label>
+                        <input
+                            name="email"
+                            ref={inputEmail}
+                            type="email"
+                            placeholder="Enter your email..."
+                            onChange={handleLog}
+                        />
+                    </div>
+
+                    <div className="input-group">
+                        <label>Password</label>
+                        <input
+                            name="password"
+                            ref={inputPassword}
+                            type="password"
+                            placeholder="••••••••"
+                            onChange={handleLog}
+                        />
+                    </div>
+
+                    <div className="auth-actions">
+                        <button className="btn btn-primary" onClick={logIn}>
+                            Login
+                        </button>
+                        <button className="btn btn-secondary" onClick={logStatFalse}>
+                            Registration
+                        </button>
+                    </div>
                 </div>
-                <div className="input-group">
-                    <label>Password</label>
-                    <input name="password" ref={inputPassword} type="password" onChange={handleLog} />
-                    <button className="btn btn-primary" onClick={logIn}>Submit</button>
-                    <button className="btn btn-primary" onClick={logStatFalse}>registration</button>
-                </div>
-            </>
-        )
+            </div>
+        );
+
     } else if (isAuthenticated) {
         return (
             <div className="app-layout" onDragOver={(e) => e.preventDefault()} onDrop={uploader}>
 
                 <div className="sidebar-actions">
                     <button onClick={createRoom} className="action-btn" title="Create room">+</button>
+                    <button onClick={viewMyProfile} className="action-btn" title="Viewe profile">:</button>
                 </div>
 
                 <div className="sidebar-chats">
@@ -476,10 +592,43 @@ function App() {
                     <ul className="chat-list">
                         {arr.map((item, index) => (
                             <li key={index} onClick={() => joiningRoom(item)} className={`chat-item ${room?.name === item.name ? 'active' : 'offline'}`}>
-                                <span className="chat-name">{item.name}</span>
+
                                 {item.type === 'private' && (
-                                    <span className={`status-dot ${onlineUsers.includes(item.otherUserName) ? 'online' : 'offline'}`} />
+                                    <>
+                                        <span className={`status-dot ${onlineUsers.includes(item.otherUserName) ? 'online' : 'offline'}`} />
+
+                                        <div className="avatar-wrapper" style={{ marginBottom: 0 }}>
+                                            <div className="avatar-circle sidebar-avatar">
+                                                {roomAvatar(item) ? (
+                                                    <img src={roomAvatar(item)} className="room-avatar" alt="uploaded" />
+                                                ) : (
+                                                    <div className="avatar-placeholder">👤</div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                    </>
+
                                 )}
+
+                                {item.type === 'main' && (
+                                    <>
+                                        <span className={`status-dot.main`} />
+
+                                        <div className="avatar-wrapper" style={{ marginBottom: 0 }} >
+                                            <div className="avatar-circle sidebar-avatar">
+                                                {item.avatar ? (
+                                                    <img src={item.avatar} className="room-avatar" alt="uploaded" />
+                                                ) : (
+                                                    <div className="avatar-placeholder">👤</div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                    </>
+
+                                )}
+                                <span className="chat-name">{roomName([item.user, item.type, item.name])}</span>
                             </li>
                         ))}
                     </ul>
@@ -490,12 +639,13 @@ function App() {
                         <>
                             {room.type === "main" ? (
                                 <div className="chat-header">
-                                    <h3>{room?.name}</h3>
+                                    <h3>{room.name}</h3>
+                                    {roomAvdmin([room, user]) && <button className="btn-icon" onClick={viewTheRoom}>Room settings</button>}
                                     <button onClick={viewMembers} className="btn-icon">👥 Members</button>
                                 </div>
                             ) : (
                                 <div className="chat-header">
-                                    <h3>{room?.name}</h3>
+                                    <h3>{roomName([room.user, room.type, room.name])}</h3>
                                 </div>
                             )}
 
@@ -505,8 +655,15 @@ function App() {
                                         <div className="message-box">
                                             <div className="message-meta">{msg.user}</div>
                                             {msg.type === 'text' && <p className="message-text">{msg.text}</p>}
-                                            {msg.type === 'jpeg' && <img src={msg.path} className="message-media" alt="uploaded" />}
-                                            {msg.type === 'mp4' && <ReactPlayer url={msg.path} controls width="100%" height="auto" />}
+                                            {msg.type === 'jpeg' &&
+                                                <PhotoProvider>
+                                                    <div className="message-image-container">
+                                                        <PhotoView src={msg.path}>
+                                                            <img src={msg.path} className="message-media" alt="uploaded" />
+                                                        </PhotoView>
+                                                    </div>
+                                                </PhotoProvider>}
+                                            {msg.type === 'mp4' && <ReactPlayer src={msg.path} controls width="100%" height="auto" />}
 
                                             {selectedMessage === msg && (room.admin?.includes(user) || msg.user === user) && (
                                                 <select className="message-actions" onChange={(e) => optionsHendler(e.target.value)}>
@@ -520,15 +677,27 @@ function App() {
                             </div>
 
                             <div className="chat-footer">
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    style={{ display: 'none' }}
+                                    onChange={uploader}
+                                />
+
                                 <button onClick={fileAdder} className="btn-icon">📎</button>
+
                                 <input
                                     ref={inputRef}
-                                    type={add}
+                                    type="text"
                                     placeholder="Write a message..."
-                                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                                    onChange={add === 'file' ? uploader : undefined}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            handleSend(e);
+                                        }
+                                    }}
                                 />
-                                <button onClick={sendMessage} className="btn-send">Send</button>
+
+                                <button onClick={handleSend} className="btn-send">Send</button>
                             </div>
                         </>
                     ) : (
@@ -554,10 +723,10 @@ function App() {
                                 >
                                     <div className="member-info">
                                         <span className="member-name">@{member}</span>
-                                        {room?.admin?.includes(member) && <span className="badge-admin">admin</span>}
+                                        {roomAvdmin([room, member]) && <span className="badge-admin">admin</span>}
                                     </div>
 
-                                    {selectedUser === member && room?.admin?.includes(user) && (
+                                    {selectedUser === member && roomAvdmin([room, user]) && (
                                         <div className="member-actions-wrapper">
                                             <select
                                                 className="select-minimal"
@@ -565,7 +734,7 @@ function App() {
                                                 defaultValue=""
                                             >
                                                 <option value="" disabled>...</option>
-                                                <option value="delete">Удалить</option>
+                                                <option value="delete">Delete</option>
                                             </select>
                                         </div>
                                     )}

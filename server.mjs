@@ -11,6 +11,14 @@ import crypto from 'node:crypto';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
+import argon2 from 'argon2';
+
+import sharp from 'sharp';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
+import fs from 'fs';
+
+ffmpeg.setFfmpegPath(ffmpegStatic);
 
 const app = express();
 const server = http.createServer(app);
@@ -32,6 +40,7 @@ const __dirname = dirname(__filename);
 
 app.use(express.static(__dirname + "/public"));
 app.use(express.json());
+app.use('/avatars', express.static('avatars'));
 
 const client = new MongoClient("mongodb://127.0.0.1:27017");
 const db = client.db("myAppDB");
@@ -78,15 +87,15 @@ start();
 app.get("/api/auth/me", async (req, res) => {
     const decoded = verifyTokenFromCookies(req.headers.cookie);
 
-    if (!decoded) {
-        return res.status(401).json({ authorized: false });
-    }
+    if (!decoded) return res.status(401).json({ authorized: false });
+
     const user = await collection_users.findOne({ email: decoded.email })
 
     return res.status(200).json({
         authorized: true,
         email: decoded.email,
-        user: user.name
+        user: user.name,
+        avatar: user.avatar
     });
 });
 
@@ -101,42 +110,70 @@ io.on("connection", async (socket) => {
         socket.leave(previousRoom);
         socket.join(room)
     })
+    socket.on("room_change", async (user) => {
+        io.emit("room_change_confirm", user);
+    })
 
     socket.on("new_massage", async (new_message) => {
 
-        const massage = {
-            text: new_message.text,
-            user: new_message.user,
-            room: new_message.room,
-            type: new_message.type,
-            key: new_message.key
-        };
+        let massage
+
+        if (new_message.type === "text") {
+            massage = {
+                text: new_message.text,
+                user: new_message.user,
+                room: new_message.room,
+                type: new_message.type,
+                key: new_message.key
+            };
+        } else {
+            massage = {
+                text: new_message.text,
+                user: new_message.user,
+                room: new_message.room,
+                type: new_message.type,
+                key: new_message.key,
+                path: new_message.path
+            }
+
+        }
 
         await collection_massages.insertOne(massage);
         io.emit("new_massage", new_message);
     })
 
-    socket.on("delete_message", async (key) => {
+    socket.on("delete_message", async (message) => {
 
-        const message = await collection_massages.findOne({ key: key });
-        await collection_massages.deleteOne(message);
-        socket.broadcast.emit("delete_massage_confirm", key);
+        const messageToDEl = await collection_massages.findOne({ key: message.key });
+        await collection_massages.deleteOne(messageToDEl);
+        socket.broadcast.emit("delete_massage_confirm", message);
+
+        if (message.type !== "text") {
+            const rawPath = new URL(message.path).pathname;
+            const relativePath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
+            fs.unlink(relativePath, (err) => { console.log(err) });
+            console.log(relativePath)
+        }
+
     });
 
     socket.on("delete_user", async (key) => {
-
+        const user = await collection_users.findOne({ name: key[1] })
         const result = await collection_rooms.updateOne(
-            { name: key[0] },
-            { $pull: { user: key[1] } }
+            { name: key[0].name },
+            { $pull: { user: { name: key[1] } } }
         );
-
+        console.log(key)
         socket.broadcast.emit("delete_user_confirm", key);
     });
 
     socket.on("new_room", async (room_name) => {
+        console.log("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", room_name[1])
         const room = await collection_rooms.findOne({ name: room_name[0] })
         const user = await collection_users.findOne({ name: room_name[0] })
 
+        const newUserName = await collection_users.findOne({ name: room_name[1] });
+        const newUserName1 = await collection_users.findOne({ name: room_name[0] });
         if (user) {
 
             const nameOfRoom = room_name[0] + "-" + room_name[1]
@@ -148,7 +185,7 @@ io.on("connection", async (socket) => {
             } else {
                 const data = {
                     name: nameOfRoom,
-                    user: room_name,
+                    user: [newUserName, newUserName1],
                     type: "private"
                 }
 
@@ -157,20 +194,18 @@ io.on("connection", async (socket) => {
                 socket.emit("newRoom_added", data);
             }
         } else if (room) {
-
+            console.log("1", room_name[0])
             const doc = await collection_rooms.findOne({
                 name: room_name[0],
-                user: room_name[1]
+                user: newUserName
             });
 
             if (doc) {
                 console.log("already e")
             } else {
-                const newUserName = room_name[1];
-
                 const result = await collection_rooms.updateOne(
                     { name: room_name[0] },
-                    { $addToSet: { user: newUserName } }
+                    { $push: { user: newUserName } }
                 );
                 socket.join(room_name[0]);
                 socket.emit("newRoom_added", room);
@@ -181,17 +216,16 @@ io.on("connection", async (socket) => {
 
     socket.on("create_room", async (room) => {
         try {
-
+            const user = await collection_users.findOne({ name: room.user[0] })
             const data = {
                 name: room.text,
-                user: room.user,
-                admin: room.admin,
-                type: room.type
+                user: [user],
+                admin: [user],
+                type: room.type,
+                avatar: room.avatar
             }
             const existingRoom = await collection_rooms.findOne({
                 name: room.text,
-                user: room.user,
-                admin: room.admin,
                 type: room.type
             });
             if (existingRoom) {
@@ -241,22 +275,22 @@ io.on("connection", async (socket) => {
         const user = await collection_users.findOne({ name: data[1] })
         const users = await collection_rooms.findOne({
             "name": data[0].name,
-            "user": { $ne: data[1] }
+            "user": { $ne: user }
         })
         if (user && users !== null) {
             await collection_rooms.updateOne(
                 { name: data[0].name },
-                { $push: { user: data[1] } }
+                { $push: { user: user } }
             );
             socket.emit("user_added", data[1]);
         }
     });
 
     socket.on("leave", async (data) => {
-
+        const user = await collection_users.findOne({ name: data[1] })
         collection_rooms.updateOne(
             { "name": data[0].name },
-            { $pull: { "user": data[1] } }
+            { $pull: { "user": user } }
         )
         socket.emit("user_leaved", data);
     });
@@ -281,19 +315,26 @@ app.get('/api/users/online', async (req, res) => {
     }
 });
 
-app.post("/api/users", async (req, res) => {
+app.post("/api/registration", async (req, res) => {
     try {
         const emailRepeated = await collection_users.findOne({ email: req.body.email })
         const nameRepeated = await collection_users.findOne({ name: req.body.name })
+
+        const hashedPassword = await argon2.hash(req.body.password, {
+            type: argon2.argon2id,
+            memoryCost: 2 ** 16,
+            timeCost: 3,
+            parallelism: 1
+        });
 
         const user = {
             id: uuidv4(),
             name: req.body.name,
             email: req.body.email,
-            password: req.body.password
+            password: hashedPassword
         };
 
-        if (!user.name || !user.surname || !user.surname || !user.password) { return res.status(400).json("Missing something") }
+        if (!user.name || !user.password) { return res.status(400).json("Missing something") }
         if (emailRepeated || nameRepeated) { return res.status(400).json("Email or name already exists") }
         const result = await collection_users.insertOne(user);
 
@@ -320,7 +361,16 @@ app.delete("/api/users", async (req, res) => {
 
 app.post("/api/login", async (req, res) => {
     try {
-        const user = await collection_users.findOne({ email: req.body.email, password: req.body.password })    //!!!
+
+        const user = await collection_users.findOne({ email: req.body.email })
+
+        const isPasswordValid = await argon2.verify(user.password, req.body.password);
+
+        if (!isPasswordValid) {
+            return res.status(400).json({ message: 'invalid password' });
+        }
+
+
         const options = { expiresIn: '1h' };
         const payload = { email: user.email };
         if (!user) return res.status(404).json("no such user");
@@ -357,15 +407,50 @@ app.post("/api/logout", async (req, res) => {
 });
 
 app.get("/api/rooms", async (req, res) => {
+    const { user, name } = req.query;
+    const roomMatch = await collection_rooms.findOne({ name: name });
+    console.log(req.query)
     try {
-        const { user } = req.query;
-        const userS = await collection_rooms.find({ user: user }).toArray();
-        res.status(200).json(userS);
+        if (roomMatch) {
+            console.log("user")
+            const room = await collection_rooms.aggregate([
+                { $match: { "name": name } },
+                {
+                    $project: {
+                        name: 1,
+                        type: 1,
+                        user: 1,
+                        admin: 1,
+                        avatar: 1
+                    }
+                }
+            ]).toArray();
+
+            res.status(200).json(room);
+        } else {
+            console.log("user")
+            const userS = await collection_rooms.aggregate([
+                { $match: { "user.name": user } },
+                {
+                    $project: {
+                        name: 1,
+                        type: 1,
+                        user: 1,
+                        admin: 1,
+                        avatar: 1
+                    }
+                }
+            ]).toArray();
+
+            res.status(200).json(userS);
+        }
     } catch (err) {
-        console.log(err);
-        res.status(500).json(err.message);
+        console.error(err);
+        res.status(500).json({ error: err.message });
     }
-})
+});
+
+
 
 app.get("/api/rooms/user", async (req, res) => {
     try {
@@ -414,21 +499,140 @@ const upload = multer({ storage: storage });
 
 
 app.post('/upload', (req, res, next) => {
-    upload.single('messInput')(req, res, function (err) {
+    upload.single('messInput')(req, res, async function (err) {
         if (err instanceof multer.MulterError) {
             return res.status(400).json({ error: `Ошибка Multer: ${err.message}` });
         } else if (err) {
             return res.status(500).json({ error: `Ошибка сервера: ${err.message}` });
         }
+        let finalPath = req.file.path;
+
+        /* 
+              if (req.file.mimetype.startsWith('image')) {
+                  const buffer = await sharp(finalPath).resize({ width: 800 }).toBuffer();
+                  fs.writeFileSync(finalPath, buffer);
+              }
+      
+              if (req.file.mimetype.startsWith('video')) {
+                  finalPath = req.file.path + '_res.mp4';
+                  ffmpeg(req.file.path).size('1280x720').save(finalPath);
+              }
+      */
+        const webPath = finalPath.replace(/\\/g, '/');
         return res.json({
             success: true,
             filename: req.file.filename,
-            path: path.join("http://localhost:5173", req.file.path)
+            path: `http://localhost:5173/${webPath}`
         });
     });
 });
 
 
+const avatarsDir = 'avatars/';
+
+const storageAvatars = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, avatarsDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const uploadAvatars = multer({
+    storage: storageAvatars,
+    fileFilter: (req, file, cb) => { cb(null, true) },
+    limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+
+app.post('/change-avatar', uploadAvatars.single('avatar'), async (req, res) => {
+    try {
+        console.log(req.body);
+        const { name, newName, type } = req.body;
+
+        const filename = req.file ? req.file.filename : null;
+        let avatarPath;
+
+
+        if (type === 'user') {
+            const user = await collection_users.findOne({ name });
+
+            if (user.avatar) {
+
+                const brokenPath = user.avatar;
+                const parts = brokenPath.split(/avatars[\\/]/);
+                const filename = parts[parts.length - 1];
+                const absolutePath = path.join(__dirname, 'avatars', filename);
+
+                fs.unlink(absolutePath, (err) => { console.log(err) });
+            }
+
+
+            if (!user) return res.status(444).json({ success: false, message: 'User not found' });
+
+            avatarPath = filename ? `http://localhost:3000/avatars/${filename}` : user.avatar;
+
+            await collection_users.updateOne(
+                { name },
+                { $set: { name: newName, avatar: avatarPath } }
+            );
+
+            await collection_rooms.updateMany(
+                { "user.name": name },
+                { $set: { "user.$[elem].name": newName } },
+                { arrayFilters: [{ "elem.name": name }] }
+            );
+
+        } else if (type === 'room') {
+            const room = await collection_rooms.findOne({ name });
+
+
+
+
+            if (!room) {
+                return res.status(444).json({ success: false, message: 'Room not found' });
+            }
+
+            avatarPath = filename ? `http://localhost:3000/avatars/${filename}` : room.avatar;
+
+            await collection_rooms.updateOne(
+                { name },
+                { $set: { name: newName, avatar: avatarPath } }
+            );
+
+        } else {
+            return res.status(400).json({ success: false, message: 'Invalid type. Use "user" or "room"' });
+        }
+
+        return res.json({
+            success: true,
+            avatar: avatarPath,
+            filename: filename
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.post('/upload-room', uploadAvatars.single('avatar'), async (req, res) => {
+    try {
+        const filename = req.file ? req.file.filename : null;
+        const avatarPath = filename ? `http://localhost:3000/avatars/${filename}` : req.avatar;
+
+        return res.json({
+            success: true,
+            avatar: avatarPath,
+            filename: filename
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 app.get("/api/massages", async (req, res) => {
     try {
