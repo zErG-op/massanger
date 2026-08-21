@@ -141,9 +141,23 @@ html,
 
 .search-box {
     display: flex;
+    flex-direction: column;
     padding: 15px;
-    gap: 5px;
+    gap: 6px;
 }
+
+.search-input-wrapper {
+    display: flex;
+    gap: 5px;
+    width: 100%;
+}
+
+.input-error-message {
+    font-size: 12px;
+    color: #ff4d4f;
+    padding-left: 2px;
+}
+
 
 .search-box input {
     flex-grow: 1;
@@ -408,6 +422,16 @@ html,
     text-transform: uppercase;
 }
 
+.badge-blocked {
+    font-size: 0.7rem;
+    background: rgba(239, 68, 68, 0.15);
+    color: #4A5568;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
 .select-minimal {
     background: #0f172a;
     color: #94a3b8;
@@ -587,7 +611,6 @@ video {
     display: block;
 }
 
-/* Внешний контейнер без заливки */
 .auth-container {
     display: flex;
     justify-content: center;
@@ -595,21 +618,16 @@ video {
     min-height: 100vh;
     padding: 20px;
     background: transparent;
-    /* Убрали светлый фон страницы */
 }
 
-/* Карточка без чисто белого фона (эффект полупрозрачности/стекла) */
 .auth-card {
     width: 100%;
     max-width: 400px;
     background: rgba(255, 255, 255, 0.05);
-    /* Легкий полупрозрачный фон */
     backdrop-filter: blur(10px);
-    /* Эффект размытия сзади (Glassmorphism) */
     padding: 32px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    /* Тонкая аккуратная рамка */
     display: flex;
     flex-direction: column;
 }
@@ -619,12 +637,10 @@ video {
     margin-bottom: 24px;
     font-size: 24px;
     color: inherit;
-    /* Наследует основной цвет текста страницы */
     text-align: center;
     font-weight: 600;
 }
 
-/* Инпуты адаптивные под любой фон */
 .input-group {
     display: flex;
     flex-direction: column;
@@ -641,7 +657,6 @@ video {
 .input-group input {
     padding: 10px 14px;
     background: rgba(255, 255, 255, 0.1);
-    /* Полупрозрачный инпут */
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;
     font-size: 14px;
@@ -656,7 +671,6 @@ video {
     box-shadow: 0 0 0 3px rgba(77, 171, 247, 0.2);
 }
 
-/* Кнопки */
 .auth-actions {
     display: flex;
     gap: 10px;
@@ -709,4 +723,96 @@ video {
 
 .auth-switch span:hover {
     text-decoration: underline;
+}
+
+
+
+
+
+
+
+.member-actions-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.btn-trigger {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 5px;
+}
+
+.custom-dropdown-menu {
+    position: absolute;
+    right: 0;
+    top: 25px;
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    min-width: 100px;
+    overflow: hidden;
+}
+
+.custom-dropdown-menu button {
+    background: transparent;
+    border: none;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 13px;
+    cursor: pointer;
+    color: #2d3748;
+    width: 100%;
+}
+
+.custom-dropdown-menu button:hover {
+    background-color: #f7fafc;
+    color: #e53e3e;
+}
+
+
+
+
+
+
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 14px;
+    position: relative;
+}
+
+.input-group .input-error-message {
+    color: #e53e3e;
+    font-size: 11px;
+    font-weight: 500;
+    margin-top: 4px;
+    animation: fadeInError 0.2s ease-in-out;
+}
+
+.input-group input.error-border {
+    border-color: #fc8181 !important;
+    background-color: #fff5f5;
+}
+
+
+
+.message-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.message-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
 }

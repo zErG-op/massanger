@@ -1,12 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { io } from "socket.io-client";
 import './style.css';
-
-const socket = io("http://localhost:3000", {
-    transports: ["websocket"],
-    withCredentials: true,
-});
 
 function App() {
     const params = Object.fromEntries(new URLSearchParams(window.location.search));
@@ -65,8 +59,6 @@ function App() {
 
             if (data.success) setName(userChange);
 
-            body: formData
-            socket.emit("room_change", user);
         } catch (err) {
             console.error(err);
         }

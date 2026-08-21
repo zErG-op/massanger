@@ -1,12 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { io } from "socket.io-client";
+
 import './style.css';
 
-const socket = io("http://localhost:3000", {
-    transports: ["websocket"],
-    withCredentials: true,
-});
 
 function App() {
 
@@ -14,6 +10,8 @@ function App() {
     const [userChange, setUserChange] = useState('');
     const [avatar, setAvatar] = useState(null);
     const [avatarFile, setAvatarFile] = useState(null);
+
+    const [errors, setErrors] = useState({});
 
     const avatarInputRef = useRef(null);
 
@@ -42,26 +40,46 @@ function App() {
         if (avatarFile) { formData.append('avatar', avatarFile) };
 
         formData.append('name', user);
-        formData.append('newName', userChange);
+        formData.append('newName', userChange.trim());
         formData.append('type', "user");
-        console.log(avatarFile)
+
         try {
             const response = await fetch('http://localhost:3000/change-avatar', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                credentials: 'include'
             });
 
             const data = await response.json();
-            console.log(data);
 
             if (data.success) {
                 setUser(userChange);
+                setUserChange(userChange.trim())
+            } else {
+                setUserChange("")
+                setErrors({
+                    name: data.message
+                });
             }
 
         } catch (err) {
             console.error(err);
         }
     };
+
+    const handleInputChange = (e) => {
+        const value = e.target.value;
+        setUserChange(value);
+        setErrors({})
+    };
+
+    function openPasswordWind() {
+        window.open(
+            `http://localhost:5173/changingPassword.html?user=${encodeURIComponent(user)}`,
+            '_blank',
+            'width=800,height=600,resizable=yes'
+        );
+    }
 
     return (
         <div className="auth-container">
@@ -96,10 +114,11 @@ function App() {
                         id="profile-username"
                         type="text"
                         value={userChange || ''}
-                        onChange={(e) => setUserChange(e.target.value)}
+                        onChange={handleInputChange}
                         placeholder="Enter your name..."
                         className="room-input"
                     />
+                    {errors.name && <span className="input-error-message">{errors.name}</span>}
                 </div>
 
                 <div className="profile-actions">
@@ -107,10 +126,9 @@ function App() {
                         Save Changes
                     </button>
                     <button className="btn btn-secondary" onClick={() => {
-                        setAvatar(null);
-                        setAvatarFile(null);
+                        openPasswordWind()
                     }}>
-                        Reset
+                        Change password
                     </button>
                 </div>
             </div>

@@ -1,12 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { useState, useEffect } from 'react';
-import { useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { io } from "socket.io-client";
 import { v1 } from "uuid";
-import { shell } from 'electron';
 import ReactPlayer from 'react-player';
-import { contextBridge, ipcRenderer } from 'electron';
 import { PhotoProvider, PhotoView } from 'react-photo-view';
 import 'react-photo-view/dist/react-photo-view.css';
 import './style.css';
@@ -14,11 +11,11 @@ import './style.css';
 const socket = io("http://localhost:3000", {
     transports: ["websocket"],
     withCredentials: true,
-    // autoConnect: false
+    autoConnect: true,
+    reconnection: true
 });
 
 function App() {
-
     const [room, setRoom] = useState(null);
     const [joined, accept] = useState(false);
     const [arr, setArr] = useState([]);
@@ -27,73 +24,137 @@ function App() {
     const [files, setFiles] = useState(null);
     const [add, fileAdded] = useState("text");
     const [message, createMessage] = useState([]);
-    const [selectedMessage, selectMessage] = useState(null)
-    const [selectedUser, selectUser] = useState(null)
-    const [option, optionChanger] = useState(null)
-    const [logStat, logStatChange] = useState(false)
-    const socketRef = useRef(null);
-    const [addInput, addUserInput] = useState(false)
-
+    const [selectedMessage, selectMessage] = useState(null);
+    const [selectedUser, selectUser] = useState(null);
+    const [logStat, logStatChange] = useState(false);
+    const [codeCheck, setCodeCheck] = useState(false);
+    const [verificationCode, setVerificationCode] = useState('');
+    const [addInput, addUserInput] = useState(false);
     const [isAuthenticated, setIsAuthenticated] = useState(null);
     const [user, setCurrentUser] = useState(null);
-    useEffect(() => {
+
+    async function checkAuthenticated() {
         fetch("http://localhost:3000/api/auth/me", { credentials: "include" })
             .then(res => res.json())
             .then(data => {
                 if (data.authorized) {
                     setIsAuthenticated(true);
-                    setCurrentUser(data.user)
-                    fetchRooms(data.user)
-                    console.log(data.user)
+                    setCurrentUser(data.user);
+                    fetchRooms(data.user);
+                    socket.emit("set_online", data.user);
                 } else {
                     setIsAuthenticated(false);
                 }
             })
             .catch(() => setIsAuthenticated(false));
+    }
+
+    useEffect(() => {
+        checkAuthenticated()
     }, []);
 
+    const userRef = useRef(null);
     useEffect(() => {
-        if (!isAuthenticated) return;
+        userRef.current = user;
+    }, [user]);
 
-        socketRef.current = io("http://localhost:3000", {
-            transports: ["websocket"],
-            withCredentials: true
-        });
-
-        socketRef.current.on("connect_error", (err) => {
-            console.error(err.message);
-            setIsAuthenticated(false);
-        });
-
-        socketRef.current.on("connect", () => {
-            socket.emit("set_online", user);
-            console.log(user)
-        });
-
-        return () => {
-            if (socketRef.current) socketRef.current.disconnect();
-        };
-    }, [isAuthenticated]);
+    const [findError, setFindError] = useState({})
 
     useEffect(() => {
+        socket.on("room_updated", ({ oldName, newName, avatar }) => {
+
+            setArr(prev => prev.map(room => {
+                if (room.name === oldName) {
+                    return {
+                        ...room,
+                        name: newName,
+                        avatar: avatar
+                    };
+                }
+                return room;
+            }));
+
+            setRoom(prev => {
+                if (prev?.name === oldName) {
+                    return {
+                        ...prev,
+                        name: newName,
+                        avatar: avatar
+                    };
+                }
+                return prev;
+            });
+        });
+        socket.on("room_adding", ({ message }) => {
+            setFindError({
+                nameToAdd: message
+            })
+        })
+
+        socket.on("room_error", ({ message }) => {
+            setFindError({
+                nameToSearch: message
+            })
+        })
+
+        socket.on("user_blocked", ({ roomName, user }) => {
+            setRoom(prev => {
+                if (!prev || prev.name !== roomName) return prev;
+                const currentBlocked = prev.blocked || [];
+                if (currentBlocked.includes(user)) return prev;
+                return { ...prev, blocked: [...currentBlocked, user] };
+            });
+        });
+
+        socket.on("user_unblocked", ({ roomName, user }) => {
+            setRoom(prev => {
+                if (!prev || prev.name !== roomName) return prev;
+                return { ...prev, blocked: (prev.blocked || []).filter(u => u !== user) };
+            });
+        });
 
         socket.on("room_change_confirm", (user) => {
-            fetchRooms(user)
-            console.log("user", user)
+            fetchRooms(user);
         });
 
         socket.on("newRoom_added", (newRoom) => {
             setArr((arr) => [...arr, newRoom]);
         });
 
-        socket.on("user_leaved", (leavedUser) => {
-            setArr((prevMessages) => prevMessages.filter(msg => msg.name !== leavedUser[0].name));
-            setUser((prevMessages) => prevMessages.filter(msg => msg !== leavedUser[1]));
-            accept(false)
+        socket.on("user_leaved", ({ roomName, userName }) => {
+
+            if (userName === userRef.current) {
+
+                setArr(prev => prev.filter(r => r.name !== roomName));
+
+                setRoom(prevRoom => {
+                    if (prevRoom?.name === roomName) {
+                        accept(false);
+                        createMessage([]);
+                        view(false);
+                        return null;
+                    }
+                    return prevRoom;
+                });
+                setRoom(prevRoom => {
+                    if (prevRoom?.name === roomName) {
+                        setUser(prevUsers => (prevUsers || []).filter(u => {
+                            const nameToCheck = typeof u === 'object' ? u.name : u;
+                            return nameToCheck !== userName;
+                        }));
+                    }
+                    return prevRoom;
+                });
+            }
         });
 
-        socket.on("user_added", (newUser) => {
-            setUser((users) => [...users, newUser]);
+        socket.on("user_added", ({ roomName, user }) => {
+            setUser(prev => [...(prev || []), user.name]);
+            addUserInput(false)
+        });
+
+        socket.on("added_to_room", ({ room }) => {
+            setArr(prev => [...prev, room]);
         });
 
         socket.on("room_created", (newRoom) => {
@@ -104,15 +165,60 @@ function App() {
             createMessage((prevMessages) => prevMessages.filter(msg => msg.key !== deletedMessage.key));
         });
 
-        socket.on("delete_user_confirm", (deletedUser) => {
-            setUser((prevUsers) => prevUsers.filter(user => user !== deletedUser));
+        socket.on("removed_from_room", ({ roomName }) => {
+            setArr(prev => prev.filter(room => room.name !== roomName));
+
+            setRoom(prev => {
+                if (prev?.name === roomName) {
+                    accept(false);
+                    createMessage([]);
+                    view(false);
+                    return null;
+                }
+                return prev;
+            });
         });
 
         socket.on("new_massage", (newMessage) => {
             createMessage((message) => [...message, newMessage]);
         });
 
+        socket.on("user_updated", ({ oldName, newName, avatar }) => {
+            if (user === oldName) setCurrentUser(newName);
+
+            setArr(prev => prev.map(r => {
+                const updatedUsers = r.user?.map(u => {
+                    if (u.name === oldName) { return { ...u, name: newName, avatar } };
+                    return u;
+                });
+                return { ...r, user: updatedUsers };
+            }));
+        });
+
+        socket.on("delete_user_confirm", (key) => {
+
+            const roomName = key[0].name;
+            const userNameToDelete = key[1];
+
+
+            setRoom(prevRoom => {
+                if (prevRoom?.name === roomName) {
+                    setUser(prevUsers => (prevUsers || []).filter(u => {
+                        const nameToCheck = typeof u === 'object' ? u.name : u;
+                        return nameToCheck !== userNameToDelete;
+                    }));
+                }
+                return prevRoom;
+            });
+        });
+
         return () => {
+            socket.off("room_updated");
+            socket.off("room_adding");
+            socket.off("room_error");
+            socket.off("user_blocked");
+            socket.off("user_unblocked");
+            socket.off("user_updated");
             socket.off("room_change_confirm");
             socket.off("newRoom_added");
             socket.off("user_leaved");
@@ -120,6 +226,7 @@ function App() {
             socket.off("room_created");
             socket.off("new_massage");
             socket.off("delete_massage_confirm");
+            socket.off("removed_from_room");
             socket.off("delete_user_confirm");
         };
     }, []);
@@ -137,11 +244,7 @@ function App() {
 
                 if (res.ok) {
                     const users = await res.json();
-
                     setOnlineUsers(users)
-
-                    console.log(users);
-
                 } else {
                     setOnlineUsers([]);
                 }
@@ -182,12 +285,13 @@ function App() {
             const roomS = await response.json();
 
             setArr(roomS);
-            console.log(roomS)
+
         } catch (error) {
             console.error(error);
         }
     }
 
+    const isBlocked = room?.blocked?.includes(user);
 
     const joiningRoom = async (room) => {
         view(false)
@@ -213,14 +317,56 @@ function App() {
     const inputAdd = useRef();
     const fileInputRef = useRef(null);
 
-    function optionsHendler(option) {
-        if (selectedMessage) {
+    function optionsHendler(option, selectedUser) {
+
+        if (option === "DeleteMessage") {
             socket.emit("delete_message", selectedMessage);
             createMessage((prevMessages) => prevMessages.filter(msg => msg.key !== selectedMessage.key));
-        } else if (selectedUser) {
+            selectMessage(null)
+        } else if ("disable") {
+            selectMessage(null)
+        }
+
+        if (option === "Delete") {
             socket.emit("delete_user", [room, selectedUser]);
             setUser((prevUsers) => prevUsers.filter(user => user !== selectedUser));
+            selectUser(null)
+        } else if (option === "Block") {
+            socket.emit("block_user", {
+                roomName: room.name,
+                userToBlock: selectedUser,
+                adminName: user
+            });
+            selectUser(null)
+        } else if (option === "Unblock") {
+            socket.emit("unblock_user", {
+                roomName: room.name,
+                userToBlock: selectedUser,
+                adminName: user
+            });
+            selectUser(null)
+        } else if (option === "DisableUserOption") {
+            selectUser(null)
         }
+    }
+
+    function blockPrivate() {
+        if (!room || room.type !== "private") return;
+
+        const otherUser = room.user?.find(u => {
+            const name = typeof u === "object" ? u.name : u;
+            return name !== user;
+        });
+
+        const userToBlock = typeof otherUser === "object" ? otherUser.name : otherUser;
+
+        if (!userToBlock) return;
+
+        socket.emit("block_user", {
+            roomName: room.name,
+            userToBlock,
+            adminName: user
+        });
     }
 
     async function viewMembers() {
@@ -235,7 +381,7 @@ function App() {
                 }
             })
             const roomInfo = await fff.json()
-            setUser(roomInfo.user.map(el => el.name))
+            setUser(roomInfo.user)
             view(true)
         }
     }
@@ -366,7 +512,7 @@ function App() {
         logStatChange(false)
     }
 
-    const [formData, setFormData] = useState({ name: '', surname: '', email: '', password: '' });
+    const [formData, setFormData] = useState({ name: '', email: '', password: '' });
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData({ ...formData, [name]: value })
@@ -378,40 +524,105 @@ function App() {
         setFormLog({ ...formLog, [name]: value })
     };
 
-    const registration = async () => {
 
-        const response = await fetch('http://localhost:3000/api/registration', {
+    const [errors, setErrors] = useState({});
+
+    const registration = async (e) => {
+        if (e) e.preventDefault();
+
+        let localErrors = {};
+
+        if (!formData.name.trim()) localErrors.name = "Please, enter your name";
+        if (!formData.email.trim()) localErrors.email = "Email required to complete";
+        if (!formData.password.trim()) localErrors.password = "Password cannot consist of spaces only";
+
+        if (Object.keys(localErrors).length > 0) {
+            setErrors(localErrors);
+            return;
+        }
+
+        const response = await fetch('http://localhost:3000/api/verification/code', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(formData)
         });
+        const info = await response.json();
 
-        const data = await response.json();
-        inputName.current.value = ""
-        inputEmail.current.value = ""
-        inputPassword.current.value = ""
-        logStatChange(true)
+        if (response.ok) {
+            setCodeCheck(true);
+        } else {
+            info.field === "email" ? setErrors(prev => ({ ...prev, email: info.message })) : setErrors(prev => ({ ...prev, name: info.message }))
+        }
+
     };
 
-    const logIn = async () => {
 
-        const response = await fetch('http://localhost:3000/api/login', {
+    const handleVerifyCode = async () => {
+
+        if (!verificationCode.trim()) {
+            setErrors({ code: "Enter the code" });
+            return;
+        }
+
+        try {
+            const response = await fetch('http://localhost:3000/api/verification/verify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify({
+                    email: formData.email,
+                    password: formData.password,
+                    name: formData.name,
+                    code: verificationCode.trim()
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                setCodeCheck(false);
+                checkAuthenticated()
+            } else {
+                setErrors({ code: data.message });
+            }
+        } catch (error) {
+            console.error("error");
+        }
+    };
+
+    const logIn = async (e) => {
+        if (e) e.preventDefault();
+
+        let localErrors = {};
+
+        if (!formLog.email.trim()) localErrors.logEmail = "Enter your email";
+        if (!formLog.password.trim()) localErrors.logPassword = "Enter your password";
+
+        if (Object.keys(localErrors).length > 0) {
+            setErrors(localErrors);
+            return;
+        }
+
+        setErrors({});
+
+        const req = await fetch('http://localhost:3000/api/login', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formLog),
             credentials: 'include'
         });
-        const data = await response.json();
-        console.log(data)
-        inputEmail.current.value = ""
-        inputPassword.current.value = ""
+        const response = await req.json()
 
-        window.location.reload();
-    }
+        if (response.message) {
+            window.location.reload();
+        } else {
+            setErrors(prev => ({ ...prev, logPassword: response.message }) || "Something went wrong");
+        }
+    };
 
     async function findUser() {
         const userToFind = inputFind.current.value.trim()
@@ -456,40 +667,123 @@ function App() {
         }
     };
 
+    function addUserField() { (addInput) ? addUserInput(false) : addUserInput(true) }
+
     function addUser() {
 
-        (addInput) ? addUserInput(false) : addUserInput(true)
+        const userNameToAdd = inputAdd.current?.value.trim();
 
-        if (inputAdd.current.value.trim().length > 1) {
-            socket.emit("new_user", [room, inputAdd.current.value, user])
-            inputAdd.current.value = ""
-        };
+        if (!userNameToAdd || userNameToAdd.length < 1) return;
+
+        if (userNameToAdd === user) return;
+
+        socket.emit("new_user", [room, userNameToAdd, user]);
 
     }
 
     function leave(user) {
-        view(false)
         socket.emit("leave", [room, user])
     }
 
     function roomName(room) {
-        return room[1] === "private" ? room[0].map(item => item.name).filter((us) => us !== user) : room[2]
+        return room[1] === "private" ? room[0].map(item => item.name).filter((nameStr) => nameStr !== userRef.current)[0] : room[2];
     }
 
     function roomAvatar(room) {
-        return room.user.filter(item => item.name !== user)[0].avatar
+        return room.user.filter(item => item.name !== user)[0]?.avatar
     }
-    function roomAvdmin(room) {
+
+    function roomMessageAvatar(room, user) {
+        return room.user.filter(item => item.name === user)[0]?.avatar
+    }
+
+    function roomAdmin(room) {
         return room[0].admin.map(el => el.name).includes(room[1])
     }
 
-    function consol(room) {
-        console.log(room)
+    function isInclude(room) {
+        return room.user.filter((el) => el.name !== user)[0]?.name
     }
-    if (isAuthenticated === false && logStat === false) {
+
+
+
+
+    const [timer, setTimer] = useState(60);
+
+    useEffect(() => {
+
+        if (!codeCheck || timer <= 0) return;
+
+        const intervalId = setInterval(() => {
+            setTimer(prev => prev - 1);
+        }, 1000);
+
+        return () => clearInterval(intervalId);
+    }, [timer, codeCheck]);
+
+    const handleResendCode = () => {
+        registration();
+        setTimer(60);
+    };
+
+    if (isAuthenticated === false && logStat === false && codeCheck) {
         return (
             <div className="auth-container">
-                <div className="auth-card">
+                <form className="auth-card" onSubmit={(e) => { e.preventDefault(); handleVerifyCode(); }}>
+                    <h2>Verification</h2>
+                    <p style={{ fontSize: '13px', opacity: 0.8, textAlign: 'center', marginBottom: '20px' }}>
+                        The code is sent on your email
+                    </p>
+
+                    <div className="input-group">
+                        <label>The code from letter</label>
+                        <input
+                            type="text"
+                            maxLength={6}
+                            value={verificationCode}
+                            placeholder="Enter the 6-digit code"
+                            style={{ textAlign: 'center', letterSpacing: '4px', fontSize: '18px', fontWeight: 'bold' }}
+                            onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
+                            onChange={(e) => {
+                                setVerificationCode(e.target.value);
+                                setErrors(prev => ({ ...prev, code: "" }));
+                            }}
+                        />
+                        {errors.code && <span className="input-error-message">{errors.code}</span>}
+                    </div>
+
+                    <div className="auth-actions">
+                        <button className="btn btn-primary" type="submit" >
+                            Confirm
+                        </button>
+                    </div>
+
+                    <div className="auth-switch" style={{ marginTop: '20px', textAlign: 'center', fontSize: '13px' }}>
+                        Have not received the code?{' '}
+                        {timer > 0 ? (
+                            <span style={{ opacity: 0.6, fontFamily: 'monospace' }}>
+                                Resend in {timer}s
+                            </span>
+                        ) : (
+                            <span
+                                onClick={handleResendCode}
+                                style={{ cursor: 'pointer', color: '#4f46e5', fontWeight: '500', textDecoration: 'underline' }}
+                            >
+                                Send again
+                            </span>
+                        )}
+                    </div>
+                </form >
+            </div>
+        );
+
+    }
+
+    else if (isAuthenticated === false && logStat === false) {
+        return (
+            <div className="auth-container">
+
+                <form className="auth-card" onSubmit={registration}>
                     <h2>Create Account</h2>
 
                     <div className="input-group">
@@ -499,8 +793,13 @@ function App() {
                             ref={inputName}
                             type="text"
                             placeholder="Enter your name..."
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            className={errors.name ? "error-border" : ""}
+                            onChange={(e) => {
+                                setFormData({ ...formData, name: e.target.value });
+                                setErrors(prev => ({ ...prev, name: "" }));
+                            }}
                         />
+                        {errors.name && <span className="input-error-message">{errors.name}</span>}
                     </div>
 
                     <div className="input-group">
@@ -510,8 +809,13 @@ function App() {
                             ref={inputEmail}
                             type="email"
                             placeholder="Enter your email..."
-                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                            className={errors.email ? "error-border" : ""}
+                            onChange={(e) => {
+                                setFormData({ ...formData, email: e.target.value });
+                                setErrors(prev => ({ ...prev, email: "" }));
+                            }}
                         />
+                        {errors.email && <span className="input-error-message">{errors.email}</span>}
                     </div>
 
                     <div className="input-group">
@@ -521,24 +825,30 @@ function App() {
                             ref={inputPassword}
                             type="password"
                             placeholder="••••••••"
-                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                            className={errors.password ? "error-border" : ""}
+                            onChange={(e) => {
+                                setFormData({ ...formData, password: e.target.value });
+                                setErrors(prev => ({ ...prev, password: "" }));
+                            }}
                         />
+                        {errors.password && <span className="input-error-message">{errors.password}</span>}
                     </div>
 
-                    <button className="btn btn-primary" onClick={registration}>
+                    <button type="submit" className="btn btn-primary">
                         Create account
                     </button>
 
                     <p className="auth-switch">
-                        Already have account? <span onClick={() => logStatChange(true)}>Login</span>
+                        Already have account? <span onClick={() => { setErrors({}); logStatChange(true); }}>Login</span>
                     </p>
-                </div>
+                </form>
             </div>
         );
-    } else if (isAuthenticated === false && logStat) {
+    }
+    else if (isAuthenticated === false && logStat) {
         return (
             <div className="auth-container">
-                <div className="auth-card">
+                <form className="auth-card" onSubmit={logIn}>
                     <h2>Login</h2>
 
                     <div className="input-group">
@@ -548,8 +858,13 @@ function App() {
                             ref={inputEmail}
                             type="email"
                             placeholder="Enter your email..."
-                            onChange={handleLog}
+                            className={errors.logEmail ? "error-border" : ""}
+                            onChange={(e) => {
+                                handleLog(e);
+                                setErrors(prev => ({ ...prev, logEmail: "" }));
+                            }}
                         />
+                        {errors.logEmail && <span className="input-error-message">{errors.logEmail}</span>}
                     </div>
 
                     <div className="input-group">
@@ -559,19 +874,24 @@ function App() {
                             ref={inputPassword}
                             type="password"
                             placeholder="••••••••"
-                            onChange={handleLog}
+                            className={errors.logPassword ? "error-border" : ""}
+                            onChange={(e) => {
+                                handleLog(e);
+                                setErrors(prev => ({ ...prev, logPassword: "" }));
+                            }}
                         />
+                        {errors.logPassword && <span className="input-error-message">{errors.logPassword}</span>}
                     </div>
 
                     <div className="auth-actions">
-                        <button className="btn btn-primary" onClick={logIn}>
+                        <button type="submit" className="btn btn-primary">
                             Login
                         </button>
-                        <button className="btn btn-secondary" onClick={logStatFalse}>
+                        <button type="button" className="btn btn-secondary" onClick={() => { setErrors({}); logStatFalse(); }}>
                             Registration
                         </button>
                     </div>
-                </div>
+                </form>
             </div>
         );
 
@@ -586,8 +906,23 @@ function App() {
 
                 <div className="sidebar-chats">
                     <div className="search-box">
-                        <input ref={inputFind} placeholder="Find chat..." />
-                        <button onClick={findUser} className="btn-search">🔍</button>
+                        <div className="search-input-wrapper">
+                            <input
+                                ref={inputFind}
+                                placeholder="Find chat..."
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        findUser(e);
+                                    }
+                                }}
+                                onChange={(e) => {
+                                    setFindError(prev => ({ ...prev, nameToSearch: "" }));
+                                }}
+
+                            />
+                            <button onClick={findUser} className="btn-search">🔍</button>
+                        </div>
+                        {findError.nameToSearch && <span className="input-error-message">{findError.nameToSearch}</span>}
                     </div>
                     <ul className="chat-list">
                         {arr.map((item, index) => (
@@ -595,7 +930,7 @@ function App() {
 
                                 {item.type === 'private' && (
                                     <>
-                                        <span className={`status-dot ${onlineUsers.includes(item.otherUserName) ? 'online' : 'offline'}`} />
+                                        <span className={`status-dot ${onlineUsers.includes(isInclude(item)) ? 'online' : 'offline'}`} />
 
                                         <div className="avatar-wrapper" style={{ marginBottom: 0 }}>
                                             <div className="avatar-circle sidebar-avatar">
@@ -640,12 +975,13 @@ function App() {
                             {room.type === "main" ? (
                                 <div className="chat-header">
                                     <h3>{room.name}</h3>
-                                    {roomAvdmin([room, user]) && <button className="btn-icon" onClick={viewTheRoom}>Room settings</button>}
+                                    {roomAdmin([room, user]) && <button className="btn-icon" onClick={viewTheRoom}>Room settings</button>}
                                     <button onClick={viewMembers} className="btn-icon">👥 Members</button>
                                 </div>
                             ) : (
                                 <div className="chat-header">
                                     <h3>{roomName([room.user, room.type, room.name])}</h3>
+                                    <button onClick={blockPrivate} className="btn-icon">BLOCK</button>
                                 </div>
                             )}
 
@@ -653,7 +989,17 @@ function App() {
                                 {message.map((msg) => (
                                     <div key={msg.key} className={`message-wrapper ${msg.user === user ? 'own' : ''}`} onContextMenu={(e) => { e.preventDefault(); selectMessage(msg); }}>
                                         <div className="message-box">
-                                            <div className="message-meta">{msg.user}</div>
+
+                                            {
+                                                (room.type === "main" ?
+                                                    <div className="message-meta">
+                                                        {(roomMessageAvatar(room, msg.user) ? (roomMessageAvatar(room, msg.user) && <img src={roomMessageAvatar(room, msg.user)} className="message-avatar" alt="uploaded" />) : "👤")}
+                                                        <span className="message-username">{msg.user}</span>
+                                                    </div>
+                                                    :
+                                                    <span className="message-username">{msg.user}</span>)
+                                            }
+
                                             {msg.type === 'text' && <p className="message-text">{msg.text}</p>}
                                             {msg.type === 'jpeg' &&
                                                 <PhotoProvider>
@@ -665,10 +1011,11 @@ function App() {
                                                 </PhotoProvider>}
                                             {msg.type === 'mp4' && <ReactPlayer src={msg.path} controls width="100%" height="auto" />}
 
-                                            {selectedMessage === msg && (room.admin?.includes(user) || msg.user === user) && (
-                                                <select className="message-actions" onChange={(e) => optionsHendler(e.target.value)}>
-                                                    <option value="">...</option>
-                                                    <option value="delete">Delete</option>
+                                            {selectedMessage === msg && (room.admin?.some(a => a.name === user) || msg.user === user) && (
+                                                <select className="message-actions" onChange={(e) => optionsHendler(e.target.value, e.target)} >
+                                                    <option value="" disabled>{null}</option>
+                                                    <option value="Disable">...</option>
+                                                    <option value="DeleteMessage">Delete</option>
                                                 </select>
                                             )}
                                         </div>
@@ -682,6 +1029,7 @@ function App() {
                                     ref={fileInputRef}
                                     style={{ display: 'none' }}
                                     onChange={uploader}
+                                    disabled={isBlocked}
                                 />
 
                                 <button onClick={fileAdder} className="btn-icon">📎</button>
@@ -689,7 +1037,9 @@ function App() {
                                 <input
                                     ref={inputRef}
                                     type="text"
-                                    placeholder="Write a message..."
+                                    disabled={isBlocked}
+                                    placeholder={isBlocked ? "You are blocked in this room" : "Write a message..."}
+
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter') {
                                             handleSend(e);
@@ -712,38 +1062,62 @@ function App() {
                         <h4>Members</h4>
 
                         <ul className="members-list">
-                            {users.map((member, index) => (
-                                <li
-                                    key={`member-item-${member}-${index}`}
-                                    className={`member-item ${selectedMessage === member ? 'selected' : ''}`}
-                                    onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        selectUser(member);
-                                    }}
-                                >
-                                    <div className="member-info">
-                                        <span className="member-name">@{member}</span>
-                                        {roomAvdmin([room, member]) && <span className="badge-admin">admin</span>}
-                                    </div>
+                            {users.map((member, index) => {
+                                const currentMemberName = member?.name || member;
 
-                                    {selectedUser === member && roomAvdmin([room, user]) && (
-                                        <div className="member-actions-wrapper">
-                                            <select
-                                                className="select-minimal"
-                                                onChange={(e) => optionsHendler(e.target.value)}
-                                                defaultValue=""
-                                            >
-                                                <option value="" disabled>...</option>
-                                                <option value="delete">Delete</option>
-                                            </select>
+                                return (
+                                    <li
+                                        key={`member-item-${currentMemberName}`}
+                                        className={`member-item ${selectedMessage === currentMemberName ? 'selected' : ''}`}
+                                        onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            selectUser(currentMemberName);
+                                        }}
+                                    >
+                                        <div className="member-info">
+
+                                            {(roomMessageAvatar(room, currentMemberName) ? (roomMessageAvatar(room, currentMemberName) && <img src={roomMessageAvatar(room, currentMemberName)} className="message-avatar" alt="uploaded" />) : "👤")}
+                                            <span className="member-name">@{currentMemberName}</span>
+
+                                            {roomAdmin([room, currentMemberName]) && (
+                                                <span className="badge-admin">admin</span>
+                                            )}
+
+                                            {room.blocked.includes(currentMemberName) && (
+                                                <span className="badge-blocked">blocked</span>
+                                            )}
+
                                         </div>
-                                    )}
-                                </li>
-                            ))}
+
+                                        {selectedUser === currentMemberName && roomAdmin([room, user]) && (selectedUser !== user) && (
+                                            <div className="member-actions-wrapper">
+                                                <select
+                                                    className="select-minimal"
+                                                    defaultValue=""
+                                                    onChange={(e) => {
+                                                        optionsHendler(e.target.value, currentMemberName, e.target);
+                                                        e.target.value = "";
+                                                    }}
+                                                >
+                                                    <option value="" disabled>{null}</option>
+                                                    <option value="DisableUserOption">...</option>
+                                                    <option value="Delete">Delete</option>
+
+                                                    {room.blocked.includes(currentMemberName) ? (
+                                                        <option value="Unblock">Unblock</option>
+                                                    ) : (
+                                                        <option value="Block">Block</option>
+                                                    )}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </li>
+                                );
+                            })}
                         </ul>
 
                         <div className="members-controls">
-                            <button className="btn btn-primary" onClick={() => addUser()}>addUser</button>
+                            <button className="btn btn-primary" onClick={() => addUserField()}>addUser</button>
                             <button className="btn btn-danger" onClick={() => leave(user)}>leave</button>
                         </div>
 
@@ -754,7 +1128,9 @@ function App() {
                                     onKeyDown={(e) => e.key === 'Enter' && addUser()}
                                     ref={inputAdd}
                                     type="text"
+                                    onChange={(e) => setFindError(prev => ({ ...prev, nameToAdd: "" }))}
                                 />
+                                {findError.nameToAdd && <span className="input-error-message">{findError.nameToAdd}</span>}
                             </div>
                         ) : (
                             <div></div>
