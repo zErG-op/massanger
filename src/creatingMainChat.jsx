@@ -19,6 +19,31 @@ function App() {
     const inputRef = useRef();
     const fileInputRef = useRef();
 
+    const uploadAvatar = async (avatarFile, username) => {
+        if (!avatarFile || !username) return null;
+
+        const formData = new FormData();
+        formData.append('avatar', avatarFile);
+        formData.append('name', username);
+
+        try {
+            const response = await fetch('http://localhost:3000/upload-room', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                return result.avatar;
+            } else {
+                return null;
+            }
+        } catch (error) {
+            console.error(error);
+            return null;
+        }
+    };
 
     async function send() {
         if (!inputRef.current || inputRef.current.value.trim().length <= 1) {

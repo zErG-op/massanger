@@ -836,9 +836,9 @@ const upload = multer({ storage: storage });
 app.post('/upload', (req, res, next) => {
     upload.single('messInput')(req, res, async function (err) {
         if (err instanceof multer.MulterError) {
-            return res.status(400).json({ error: `Ошибка Multer: ${err.message}` });
+            return res.status(400).json({ error: `Multer error: ${err.message}` });
         } else if (err) {
-            return res.status(500).json({ error: `Ошибка сервера: ${err.message}` });
+            return res.status(500).json({ error: `Server error: ${err.message}` });
         }
         let finalPath = req.file.path;
 
@@ -870,10 +870,24 @@ const uploadAvatars = multer({
     limits: { fileSize: 5 * 1024 * 1024 }
 });
 
+app.post('/upload-room', uploadAvatars.single('avatar'), async (req, res) => {
+    try {
+        const filename = req.file ? req.file.filename : null;
+        const avatarPath = filename ? `http://localhost:3000/avatars/${filename}` : req.avatar;
+
+        return res.json({
+            success: true,
+            avatar: avatarPath,
+            filename: filename
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 app.post('/change-avatar', uploadAvatars.single('avatar'), async (req, res) => {
     try {
-        console.log(req.body);
         const { name, newName, type } = req.body;
 
         const filename = req.file ? req.file.filename : null;
