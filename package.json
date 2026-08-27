@@ -42,8 +42,7 @@
     "nsis": {
       "oneClick": false,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "okoshko"
+      "createStartMenuShortcut": true
     }
   }
 }

@@ -31,8 +31,7 @@ function createWindow() {
 		if (title.startsWith("OPEN_FILE:")) {
 			event.preventDefault();
 			const filePath = title.replace("OPEN_FILE:", "");
-			console.log("===> Main.js получил реальный путь:", filePath);
-			if (filePath && shell) shell.openPath(filePath).catch((err) => console.log("Ошибка открытия:", err));
+			if (filePath && shell) shell.openPath(filePath).catch((err) => console.log("Error of oppening", err));
 		}
 	});
 }
