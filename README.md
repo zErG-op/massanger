@@ -35,7 +35,7 @@ Auth: JWT, Argon2, cookies
 
 ### Download
 `bash
-git clone https://github.com/твой-логин/твой-репо.git
+git clone this repo
 cd your-repo
 npm install
 
