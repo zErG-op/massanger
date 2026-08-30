@@ -23,10 +23,9 @@ Database: MongoDB
 Auth: JWT, Argon2, cookies
 
 ## Screenshots
-| Chats | Profile |
+| Chat | Profile settings |
 |------|---------|
-| ![chats](docs/chats.png) | ![profile](docs/profileSettings.png) |
-| ![chats](docs/chat.png) |
+| ![chats](docs/chat.png) | ![profile](docs/profileSettings.png) |
 
 ## Getting Started
 ### Requirements
