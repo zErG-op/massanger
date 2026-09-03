@@ -554,7 +554,7 @@ app.post("/api/verification/code", async (req, res) => {
 
         const { data, error } = await resend.emails.send({
             from: 'Acme <onboarding@resend.dev>',
-            to: "kirillrubcov990@gmail.com",
+            to: email,
             subject: 'Verification Code',
             html: `<p>Your code is <strong>${code}</strong></p>`,
         });
